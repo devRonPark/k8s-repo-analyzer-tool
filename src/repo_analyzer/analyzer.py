@@ -14,14 +14,23 @@ from .models import AnalysisResult
 from .parsers.compose import ComposeFile, parse_compose
 from .parsers.dockerfile import Dockerfile, parse_dockerfile
 from .parsers.dotenv import DotenvFile, parse_dotenv
+from .parsers.gradle import (
+    GradleBuild,
+    parse_gradle,
+    parse_gradle_wrapper,
+    parse_settings,
+)
 from .parsers.maven import MavenProject, parse_maven
 from .parsers.nginx import NginxConfig, parse_nginx
 from .parsers.python_settings import PythonSettings, parse_python_settings
+from .parsers.spring_properties import SpringProperties, parse_spring_properties
 from .parsers.spring_xml import SpringContext, parse_spring_xml
+from .parsers.sql_init import SqlInitScript, parse_sql_init
 from .parsers.webxml import WebApp, parse_webxml
 from .rules.kubernetes_p0 import analyze_kubernetes_p0
 
 SUPPORTED_PROFILES = {"kubernetes-p0"}
+SUPPORTED_BUILD_SYSTEMS = {"auto", "gradle", "maven"}
 
 _SOURCE_EXTS = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"}
 _ENV_USAGE_DIR_SKIP = {"node_modules", ".git", "dist", "build", ".venv"}
@@ -35,12 +44,22 @@ def analyze_repository(
     repository_path: str,
     profile: str = "kubernetes-p0",
     git_ref: str | None = None,
+    build_system: str = "auto",
 ) -> AnalysisResult:
-    """Analyze ``repository_path`` and return a deterministic ``AnalysisResult``."""
+    """Analyze ``repository_path`` and return a deterministic ``AnalysisResult``.
+
+    ``build_system`` (``auto`` | ``gradle`` | ``maven``) forces which build system
+    is analyzed when a repository ships more than one; ``auto`` selects
+    deterministically and records the choice.
+    """
 
     if profile not in SUPPORTED_PROFILES:
         raise ValueError(
             f"unsupported profile {profile!r}; supported: {sorted(SUPPORTED_PROFILES)}"
+        )
+    if build_system not in SUPPORTED_BUILD_SYSTEMS:
+        raise ValueError(
+            f"unsupported build_system {build_system!r}; supported: {sorted(SUPPORTED_BUILD_SYSTEMS)}"
         )
     root = Path(repository_path)
     if not root.exists():
@@ -76,6 +95,34 @@ def analyze_repository(
     mavens: dict[str, MavenProject] = {
         rel: parse_maven(_read(root, rel), rel) for rel in inventory.maven_files
     }
+
+    gradles: dict[str, GradleBuild] = {
+        rel: parse_gradle(_read(root, rel), rel) for rel in inventory.gradle_files
+    }
+    if gradles:
+        gradle_settings = (
+            parse_settings(_read(root, inventory.gradle_settings_files[0]), inventory.gradle_settings_files[0])
+            if inventory.gradle_settings_files
+            else None
+        )
+        gradle_wrapper = (
+            parse_gradle_wrapper(_read(root, inventory.gradle_wrapper_props[0]), inventory.gradle_wrapper_props[0])
+            if inventory.gradle_wrapper_props
+            else None
+        )
+        for build in gradles.values():
+            if gradle_settings is not None:
+                build.root_project_name, build.root_project_name_location = gradle_settings
+            if gradle_wrapper is not None:
+                build.wrapper_gradle_version, build.wrapper_location = gradle_wrapper
+
+    spring_props: dict[str, SpringProperties] = {
+        rel: parse_spring_properties(_read(root, rel), rel) for rel in inventory.spring_property_files
+    }
+    sql_inits: dict[str, SqlInitScript] = {
+        rel: parse_sql_init(_read(root, rel), rel) for rel in inventory.sql_init_files
+    }
+
     webapps: dict[str, WebApp] = {
         rel: parse_webxml(_read(root, rel), rel) for rel in inventory.web_descriptors
     }
@@ -95,6 +142,7 @@ def analyze_repository(
         repo_name=root.resolve().name,
         profile=profile,
         git_ref=git_ref,
+        build_system=build_system,
         inventory=inventory,
         compose=compose,
         dockerfiles=dockerfiles,
@@ -103,6 +151,9 @@ def analyze_repository(
         settings=settings,
         shell_scripts=shell_scripts,
         mavens=mavens,
+        gradles=gradles,
+        spring_props=spring_props,
+        sql_inits=sql_inits,
         webapps=webapps,
         springs=springs,
         readmes=readmes,

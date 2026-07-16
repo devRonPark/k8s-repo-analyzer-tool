@@ -25,6 +25,7 @@ SKIP_DIRS = {
     ".ruff_cache",
     ".idea",
     ".vscode",
+    ".devcontainer",
     "htmlcov",
     "coverage",
 }
@@ -53,6 +54,12 @@ class Inventory:
     shell_scripts: list[str] = field(default_factory=list)
     alembic_files: list[str] = field(default_factory=list)
     maven_files: list[str] = field(default_factory=list)
+    gradle_files: list[str] = field(default_factory=list)
+    gradle_settings_files: list[str] = field(default_factory=list)
+    gradle_wrapper_props: list[str] = field(default_factory=list)
+    spring_property_files: list[str] = field(default_factory=list)
+    spring_yaml_files: list[str] = field(default_factory=list)
+    sql_init_files: list[str] = field(default_factory=list)
     web_descriptors: list[str] = field(default_factory=list)
     spring_xml_files: list[str] = field(default_factory=list)
     readme_files: list[str] = field(default_factory=list)
@@ -82,6 +89,30 @@ def _is_nginx(name: str) -> bool:
 
 def _is_readme(name: str) -> bool:
     return name.lower().split(".", 1)[0] == "readme"
+
+
+def _is_gradle_build(name: str) -> bool:
+    return name in ("build.gradle", "build.gradle.kts")
+
+
+def _is_gradle_settings(name: str) -> bool:
+    return name in ("settings.gradle", "settings.gradle.kts")
+
+
+def _is_spring_properties(name: str) -> bool:
+    return name == "application.properties" or (
+        name.startswith("application-") and name.endswith(".properties")
+    )
+
+
+def _is_spring_yaml(name: str) -> bool:
+    return name in ("application.yml", "application.yaml") or (
+        name.startswith("application-") and name.endswith((".yml", ".yaml"))
+    )
+
+
+def _is_sql_init(name: str) -> bool:
+    return name in ("schema.sql", "data.sql")
 
 
 _SPRING_XML_NAME_HINTS = ("applicationcontext", "spring")
@@ -131,6 +162,18 @@ def build_inventory(root: Path) -> Inventory:
             inv.alembic_files.append(rel)
         elif name == "pom.xml":
             inv.maven_files.append(rel)
+        elif _is_gradle_build(name):
+            inv.gradle_files.append(rel)
+        elif _is_gradle_settings(name):
+            inv.gradle_settings_files.append(rel)
+        elif name == "gradle-wrapper.properties":
+            inv.gradle_wrapper_props.append(rel)
+        elif _is_spring_properties(name):
+            inv.spring_property_files.append(rel)
+        elif _is_spring_yaml(name):
+            inv.spring_yaml_files.append(rel)
+        elif _is_sql_init(name):
+            inv.sql_init_files.append(rel)
         elif name == "web.xml":
             inv.web_descriptors.append(rel)
         elif name in _BUILD_WRAPPER_NAMES:
@@ -169,6 +212,12 @@ def _build_detected(inv: Inventory, compose_candidates: list[str]) -> list[Detec
     detected += [DetectedFile(path=p, kind="shell-init") for p in inv.shell_scripts]
     detected += [DetectedFile(path=p, kind="alembic") for p in inv.alembic_files]
     detected += [DetectedFile(path=p, kind="maven-pom") for p in inv.maven_files]
+    detected += [DetectedFile(path=p, kind="gradle-build") for p in inv.gradle_files]
+    detected += [DetectedFile(path=p, kind="gradle-settings") for p in inv.gradle_settings_files]
+    detected += [DetectedFile(path=p, kind="gradle-wrapper") for p in inv.gradle_wrapper_props]
+    detected += [DetectedFile(path=p, kind="spring-properties") for p in inv.spring_property_files]
+    detected += [DetectedFile(path=p, kind="spring-yaml") for p in inv.spring_yaml_files]
+    detected += [DetectedFile(path=p, kind="sql-init") for p in inv.sql_init_files]
     detected += [DetectedFile(path=p, kind="web-descriptor") for p in inv.web_descriptors]
     detected += [DetectedFile(path=p, kind="build-wrapper") for p in inv.build_wrappers]
     detected += [DetectedFile(path=p, kind="readme") for p in inv.readme_files]

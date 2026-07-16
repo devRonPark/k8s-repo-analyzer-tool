@@ -27,12 +27,17 @@ from ..parsers.common import Located
 from ..parsers.compose import ComposeFile, ComposeService
 from ..parsers.dockerfile import Dockerfile, exec_form
 from ..parsers.dotenv import DotenvFile
+from ..parsers.gradle import GradleBuild
 from ..parsers.maven import MavenProject
 from ..parsers.nginx import NginxConfig
 from ..parsers.python_settings import PythonSettings
+from ..parsers.spring_properties import SpringProperties
 from ..parsers.spring_xml import SpringContext
+from ..parsers.sql_init import SqlInitScript
 from ..parsers.webxml import WebApp
+from .build_system import emit_build_system_findings, resolve_build_system
 from .java_webapp import analyze_java_webapp
+from .spring_boot import analyze_spring_boot
 
 # Substrings (case-insensitive) that mark an env var as a Secret candidate.
 _SECRET_PATTERNS = (
@@ -161,6 +166,7 @@ def analyze_kubernetes_p0(
     repo_name: str,
     profile: str,
     git_ref: str | None,
+    build_system: str = "auto",
     inventory: Inventory,
     compose: ComposeFile | None,
     dockerfiles: dict[str, Dockerfile],
@@ -169,12 +175,18 @@ def analyze_kubernetes_p0(
     settings: dict[str, PythonSettings],
     shell_scripts: dict[str, list[str]],
     mavens: dict[str, MavenProject] | None = None,
+    gradles: dict[str, GradleBuild] | None = None,
+    spring_props: dict[str, SpringProperties] | None = None,
+    sql_inits: dict[str, SqlInitScript] | None = None,
     webapps: dict[str, WebApp] | None = None,
     springs: dict[str, SpringContext] | None = None,
     readmes: dict[str, list[str]] | None = None,
     env_usage: dict[str, list[tuple[str, int]]],
 ) -> AnalysisResult:
     mavens = mavens or {}
+    gradles = gradles or {}
+    spring_props = spring_props or {}
+    sql_inits = sql_inits or {}
     webapps = webapps or {}
     springs = springs or {}
     readmes = readmes or {}
@@ -190,11 +202,12 @@ def analyze_kubernetes_p0(
     )
 
     _collect_unsupported(result, compose, dockerfiles, dotenvs, nginx, settings)
+    _collect_spring_unsupported(result, gradles, spring_props, inventory)
     _register_spring_detected(result, springs)
     _warn_extra_compose(result, inventory)
 
     # Nothing to analyze at all: honestly report the absence and stop.
-    if compose is None and not mavens:
+    if compose is None and not mavens and not gradles:
         result.warnings.append(
             Warning(code="no_compose", message="no compose file found; component topology unavailable")
         )
@@ -217,19 +230,39 @@ def analyze_kubernetes_p0(
         _analyze_config_and_secrets(result, dotenvs)
         _analyze_startup(result, compose, compose_path, inventory, shell_scripts)
 
-    # Java/Maven web-application path (works with or without a compose file).
-    if mavens:
-        analyze_java_webapp(
-            result=result,
-            inventory=inventory,
-            compose=compose,
-            compose_path=compose_path,
-            dockerfiles=dockerfiles,
-            mavens=mavens,
-            webapps=webapps,
-            springs=springs,
-            readmes=readmes,
-        )
+    # Java build path: pick the build system deliberately (never "first pom.xml").
+    selection, bs_warnings = resolve_build_system(
+        requested=build_system, gradles=gradles, mavens=mavens
+    )
+    result.warnings.extend(bs_warnings)
+    if selection is not None:
+        emit_build_system_findings(result, selection)
+        if selection.selected == "gradle":
+            gradle_path = sorted(gradles, key=lambda p: (p.count("/"), p))[0]
+            analyze_spring_boot(
+                result=result,
+                inventory=inventory,
+                compose=compose,
+                compose_path=compose_path,
+                gradle=gradles[gradle_path],
+                gradle_path=gradle_path,
+                spring_props=spring_props,
+                sql_inits=sql_inits,
+                dockerfiles=dockerfiles,
+                readmes=readmes,
+            )
+        elif selection.selected == "maven":
+            analyze_java_webapp(
+                result=result,
+                inventory=inventory,
+                compose=compose,
+                compose_path=compose_path,
+                dockerfiles=dockerfiles,
+                mavens=mavens,
+                webapps=webapps,
+                springs=springs,
+                readmes=readmes,
+            )
 
     has_db = _has_db(compose) if compose is not None else False
     _emit_operational_unresolved(result, has_db=has_db)
@@ -826,6 +859,34 @@ def _collect_unsupported(
         add(cfg.path, cfg.issues)
     for st in settings.values():
         add(st.path, st.issues)
+    result.unsupported_constructs.sort(key=lambda u: (u.path, u.construct_type, u.detail))
+
+
+def _collect_spring_unsupported(
+    result: AnalysisResult,
+    gradles: dict[str, GradleBuild],
+    spring_props: dict[str, SpringProperties],
+    inventory: Inventory,
+) -> None:
+    for build in gradles.values():
+        for issue in build.issues:
+            result.unsupported_constructs.append(
+                UnsupportedConstruct(path=build.path, construct_type=issue.construct, detail=issue.detail)
+            )
+    for props in spring_props.values():
+        for issue in props.issues:
+            result.unsupported_constructs.append(
+                UnsupportedConstruct(path=props.path, construct_type=issue.construct, detail=issue.detail)
+            )
+    # application.yml/.yaml is detected but not parsed structurally: flag it.
+    for yaml_path in inventory.spring_yaml_files:
+        result.unsupported_constructs.append(
+            UnsupportedConstruct(
+                path=yaml_path,
+                construct_type="spring_yaml_config",
+                detail="YAML Spring config is not parsed; properties/profiles from this file are not analyzed",
+            )
+        )
     result.unsupported_constructs.sort(key=lambda u: (u.path, u.construct_type, u.detail))
 
 

@@ -221,7 +221,10 @@ def _match_or_create_component(
     result: AnalysisResult, pom_dir: str, maven: MavenProject, dockerfile_rel: str | None
 ) -> Component:
     for comp in result.components:
-        if _norm_context(comp.build_context) == pom_dir:
+        # Only match a component that actually builds (has a build context); an
+        # image-only compose service such as a database must not absorb the app's
+        # build facts just because both resolve to the repo root ("").
+        if comp.build_context is not None and _norm_context(comp.build_context) == pom_dir:
             return comp
         if dockerfile_rel is not None and comp.dockerfile == dockerfile_rel:
             return comp
