@@ -18,6 +18,9 @@ One parser per file format. Every parser preserves source line ranges using
 | `maven.py` | — | Maven `pom.xml` | Structural via `xml_source`; packaging, finalName, java version (+line), deps w/ scope, `${prop}` resolution, profiles→cargo container ids |
 | `webxml.py` | — | Servlet `web.xml` | Servlets, filters, listeners, servlet-mappings (url-patterns) |
 | `spring_xml.py` | — | Spring context XML | Narrow datasource detector: embedded-database + init scripts vs external `DataSource` bean/JDBC URL; namespace-checks Spring vs CDI `<beans>` |
+| `gradle.py` | — | `build.gradle`(`.kts`) | Line/brace block parser (Groovy+Kotlin): `plugins{}` (id+version+line), `dependencies{}` (configuration+coordinate), Java toolchain / sourceCompatibility, group/version; companion `settings.gradle` (rootProject.name) + `gradle-wrapper.properties` (pinned version); unrecognised declarations → `ParseIssue` |
+| `spring_properties.py` | — | `application*.properties` | key/value + line; profile from filename (`application-<p>.properties`); `${ENV:default}` placeholder extraction; YAML config is flagged unsupported by the rule layer |
+| `sql_init.py` | — | schema/data `.sql` | Idempotency scanner only: `CREATE TABLE IF NOT EXISTS` / `DROP TABLE … IF EXISTS` markers + lines (not a SQL parser) |
 
 ## Invariants
 
