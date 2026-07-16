@@ -1,0 +1,1085 @@
+{
+  "schema_version": "1.0",
+  "repository": {
+    "name": "full-stack-fastapi",
+    "profile": "kubernetes-p0",
+    "git_ref": "4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8",
+    "file_count": 10
+  },
+  "detected_files": [
+    {
+      "path": ".env",
+      "kind": "dotenv"
+    },
+    {
+      "path": "backend/Dockerfile",
+      "kind": "dockerfile"
+    },
+    {
+      "path": "backend/alembic.ini",
+      "kind": "alembic"
+    },
+    {
+      "path": "backend/app/core/config.py",
+      "kind": "python-settings"
+    },
+    {
+      "path": "backend/scripts/prestart.sh",
+      "kind": "shell-init"
+    },
+    {
+      "path": "compose.override.yml",
+      "kind": "compose-additional"
+    },
+    {
+      "path": "compose.yml",
+      "kind": "compose"
+    },
+    {
+      "path": "frontend/Dockerfile",
+      "kind": "dockerfile"
+    },
+    {
+      "path": "frontend/nginx-backend-not-found.conf",
+      "kind": "nginx"
+    },
+    {
+      "path": "frontend/nginx.conf",
+      "kind": "nginx"
+    }
+  ],
+  "components": [
+    {
+      "name": "db",
+      "source_files": [
+        "compose.yml"
+      ],
+      "image": "postgres:18",
+      "build_context": null,
+      "dockerfile": null,
+      "build_args": [],
+      "runtime": "PostgreSQL",
+      "command": null,
+      "workers": null,
+      "container_ports": [
+        5432
+      ],
+      "published_ports": [],
+      "environment": [
+        "PGDATA",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_USER",
+        "POSTGRES_DB"
+      ],
+      "secret_candidates": [
+        "POSTGRES_PASSWORD"
+      ],
+      "volumes": [
+        "app-db-data -> /var/lib/postgresql/data/pgdata"
+      ],
+      "healthcheck": "exec: CMD-SHELL pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+      "depends_on": [],
+      "workload_candidate": "StatefulSet + headless Service (or external managed database)",
+      "unresolved": [
+        "PVC size"
+      ]
+    },
+    {
+      "name": "adminer",
+      "source_files": [
+        "compose.yml"
+      ],
+      "image": "adminer",
+      "build_context": null,
+      "dockerfile": null,
+      "build_args": [],
+      "runtime": "Adminer (DB admin UI)",
+      "command": null,
+      "workers": null,
+      "container_ports": [
+        8080
+      ],
+      "published_ports": [],
+      "environment": [
+        "ADMINER_DESIGN"
+      ],
+      "secret_candidates": [],
+      "volumes": [],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "Deployment + ClusterIP Service (optional admin tool)",
+      "unresolved": []
+    },
+    {
+      "name": "prestart",
+      "source_files": [
+        "compose.yml",
+        "backend/Dockerfile"
+      ],
+      "image": "${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}",
+      "build_context": ".",
+      "dockerfile": "backend/Dockerfile",
+      "build_args": [],
+      "runtime": "FastAPI",
+      "command": [
+        "bash",
+        "scripts/prestart.sh"
+      ],
+      "workers": null,
+      "container_ports": [],
+      "published_ports": [],
+      "environment": [
+        "DOMAIN",
+        "FRONTEND_HOST",
+        "ENVIRONMENT",
+        "BACKEND_CORS_ORIGINS",
+        "SECRET_KEY",
+        "FIRST_SUPERUSER",
+        "FIRST_SUPERUSER_PASSWORD",
+        "SMTP_HOST",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+        "EMAILS_FROM_EMAIL",
+        "POSTGRES_SERVER",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "SENTRY_DSN"
+      ],
+      "secret_candidates": [
+        "SECRET_KEY",
+        "FIRST_SUPERUSER_PASSWORD",
+        "SMTP_PASSWORD",
+        "POSTGRES_PASSWORD",
+        "SENTRY_DSN"
+      ],
+      "volumes": [],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "Job (pre-deploy / init hook)",
+      "unresolved": []
+    },
+    {
+      "name": "backend",
+      "source_files": [
+        "compose.yml",
+        "backend/Dockerfile"
+      ],
+      "image": "${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}",
+      "build_context": ".",
+      "dockerfile": "backend/Dockerfile",
+      "build_args": [],
+      "runtime": "FastAPI",
+      "command": [
+        "fastapi",
+        "run",
+        "--workers",
+        "4"
+      ],
+      "workers": 4,
+      "container_ports": [
+        8000
+      ],
+      "published_ports": [],
+      "environment": [
+        "DOMAIN",
+        "FRONTEND_HOST",
+        "ENVIRONMENT",
+        "BACKEND_CORS_ORIGINS",
+        "SECRET_KEY",
+        "FIRST_SUPERUSER",
+        "FIRST_SUPERUSER_PASSWORD",
+        "SMTP_HOST",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+        "EMAILS_FROM_EMAIL",
+        "POSTGRES_SERVER",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "SENTRY_DSN"
+      ],
+      "secret_candidates": [
+        "SECRET_KEY",
+        "FIRST_SUPERUSER_PASSWORD",
+        "SMTP_PASSWORD",
+        "POSTGRES_PASSWORD",
+        "SENTRY_DSN"
+      ],
+      "volumes": [],
+      "healthcheck": "HTTP GET /api/v1/utils/health-check/",
+      "depends_on": [],
+      "workload_candidate": "Deployment + ClusterIP Service",
+      "unresolved": []
+    },
+    {
+      "name": "frontend",
+      "source_files": [
+        "compose.yml",
+        "frontend/Dockerfile"
+      ],
+      "image": "${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}",
+      "build_context": ".",
+      "dockerfile": "frontend/Dockerfile",
+      "build_args": [
+        "VITE_API_URL",
+        "NODE_ENV"
+      ],
+      "runtime": "Nginx (static assets)",
+      "command": null,
+      "workers": null,
+      "container_ports": [
+        80
+      ],
+      "published_ports": [],
+      "environment": [],
+      "secret_candidates": [],
+      "volumes": [],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "Deployment + ClusterIP Service (static assets via Nginx)",
+      "unresolved": []
+    }
+  ],
+  "workload_mappings": [
+    {
+      "component": "db",
+      "kubernetes_kind": "StatefulSet + headless Service (or external managed database)",
+      "confidence": "derived",
+      "rationale": "Stateful component with persistent data; not a stateless Deployment.",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.db",
+          "symbol": "service",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory",
+        "PVC size",
+        "StorageClass",
+        "DB HA & backup policy"
+      ]
+    },
+    {
+      "component": "adminer",
+      "kubernetes_kind": "Deployment + ClusterIP Service (optional admin tool)",
+      "confidence": "derived",
+      "rationale": "Optional developer/admin UI; deploy only if needed, keep internal.",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.adminer",
+          "symbol": "service",
+          "start_line": 23,
+          "end_line": 23
+        }
+      ],
+      "unresolved": [
+        "whether to deploy at all",
+        "replica count",
+        "CPU/memory"
+      ]
+    },
+    {
+      "component": "prestart",
+      "kubernetes_kind": "Job (pre-deploy / init hook)",
+      "confidence": "derived",
+      "rationale": "Runs migrations and seeding then exits; a run-once workload, not long-running.",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.prestart",
+          "symbol": "service",
+          "start_line": 46,
+          "end_line": 46
+        }
+      ],
+      "unresolved": [
+        "backoffLimit",
+        "CPU/memory"
+      ]
+    },
+    {
+      "component": "backend",
+      "kubernetes_kind": "Deployment + ClusterIP Service",
+      "confidence": "derived",
+      "rationale": "Stateless HTTP application; horizontally scalable behind a Service.",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend",
+          "symbol": "service",
+          "start_line": 80,
+          "end_line": 80
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory"
+      ]
+    },
+    {
+      "component": "frontend",
+      "kubernetes_kind": "Deployment + ClusterIP Service (static assets via Nginx)",
+      "confidence": "derived",
+      "rationale": "Stateless static-asset server; horizontally scalable.",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.frontend",
+          "symbol": "service",
+          "start_line": 140,
+          "end_line": 140
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory"
+      ]
+    }
+  ],
+  "networking": [
+    {
+      "subject": "db.container_port",
+      "value": 5432,
+      "confidence": "derived",
+      "kubernetes_effect": "db Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.db.image",
+          "symbol": "image.default_port",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "adminer.container_port",
+      "value": 8080,
+      "confidence": "explicit",
+      "kubernetes_effect": "adminer Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.adminer.labels[10]",
+          "symbol": "traefik.port",
+          "start_line": 43,
+          "end_line": 43
+        }
+      ]
+    },
+    {
+      "subject": "adminer.ingress_host",
+      "value": "adminer.${DOMAIN?Variable not set}",
+      "confidence": "derived",
+      "kubernetes_effect": "Ingress host rule candidate (currently routed by Traefik labels)",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.adminer.labels[3]",
+          "symbol": "traefik.host",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    },
+    {
+      "subject": "backend.container_port",
+      "value": 8000,
+      "confidence": "derived",
+      "kubernetes_effect": "backend Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend.healthcheck.test",
+          "symbol": "healthcheck.url",
+          "start_line": 113,
+          "end_line": 113
+        },
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend.labels[3]",
+          "symbol": "traefik.port",
+          "start_line": 126,
+          "end_line": 126
+        }
+      ]
+    },
+    {
+      "subject": "backend.ingress_host",
+      "value": "api.${DOMAIN?Variable not set}",
+      "confidence": "derived",
+      "kubernetes_effect": "Ingress host rule candidate (currently routed by Traefik labels)",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend.labels[4]",
+          "symbol": "traefik.host",
+          "start_line": 128,
+          "end_line": 128
+        }
+      ]
+    },
+    {
+      "subject": "frontend.container_port",
+      "value": 80,
+      "confidence": "derived",
+      "kubernetes_effect": "frontend Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "frontend/nginx.conf",
+          "selector": "listen",
+          "symbol": "listen",
+          "start_line": 2,
+          "end_line": 2
+        },
+        {
+          "path": "compose.yml",
+          "selector": "$.services.frontend.labels[3]",
+          "symbol": "traefik.port",
+          "start_line": 156,
+          "end_line": 156
+        }
+      ]
+    },
+    {
+      "subject": "frontend.ingress_host",
+      "value": "dashboard.${DOMAIN?Variable not set}",
+      "confidence": "derived",
+      "kubernetes_effect": "Ingress host rule candidate (currently routed by Traefik labels)",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.frontend.labels[4]",
+          "symbol": "traefik.host",
+          "start_line": 158,
+          "end_line": 158
+        }
+      ]
+    }
+  ],
+  "configuration": [
+    {
+      "subject": "config.DOMAIN",
+      "value": "localhost",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "DOMAIN",
+          "symbol": "env",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "config.FRONTEND_HOST",
+      "value": "http://localhost:5173",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "FRONTEND_HOST",
+          "symbol": "env",
+          "start_line": 9,
+          "end_line": 9
+        }
+      ]
+    },
+    {
+      "subject": "config.ENVIRONMENT",
+      "value": "local",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "ENVIRONMENT",
+          "symbol": "env",
+          "start_line": 14,
+          "end_line": 14
+        }
+      ]
+    },
+    {
+      "subject": "config.PROJECT_NAME",
+      "value": "Full Stack FastAPI Project",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "PROJECT_NAME",
+          "symbol": "env",
+          "start_line": 16,
+          "end_line": 16
+        }
+      ]
+    },
+    {
+      "subject": "config.STACK_NAME",
+      "value": "full-stack-fastapi-project",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "STACK_NAME",
+          "symbol": "env",
+          "start_line": 17,
+          "end_line": 17
+        }
+      ]
+    },
+    {
+      "subject": "config.BACKEND_CORS_ORIGINS",
+      "value": "http://localhost,http://localhost:5173,https://localhost,https://localhost:5173,http://localhost.tiangolo.com",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "BACKEND_CORS_ORIGINS",
+          "symbol": "env",
+          "start_line": 20,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "subject": "config.FIRST_SUPERUSER",
+      "value": "admin@example.com",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "FIRST_SUPERUSER",
+          "symbol": "env",
+          "start_line": 22,
+          "end_line": 22
+        }
+      ]
+    },
+    {
+      "subject": "config.SMTP_HOST",
+      "value": "",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SMTP_HOST",
+          "symbol": "env",
+          "start_line": 26,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "subject": "config.SMTP_USER",
+      "value": "",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SMTP_USER",
+          "symbol": "env",
+          "start_line": 27,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "subject": "config.EMAILS_FROM_EMAIL",
+      "value": "info@example.com",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "EMAILS_FROM_EMAIL",
+          "symbol": "env",
+          "start_line": 29,
+          "end_line": 29
+        }
+      ]
+    },
+    {
+      "subject": "config.SMTP_TLS",
+      "value": "True",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SMTP_TLS",
+          "symbol": "env",
+          "start_line": 30,
+          "end_line": 30
+        }
+      ]
+    },
+    {
+      "subject": "config.SMTP_SSL",
+      "value": "False",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SMTP_SSL",
+          "symbol": "env",
+          "start_line": 31,
+          "end_line": 31
+        }
+      ]
+    },
+    {
+      "subject": "config.SMTP_PORT",
+      "value": "587",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SMTP_PORT",
+          "symbol": "env",
+          "start_line": 32,
+          "end_line": 32
+        }
+      ]
+    },
+    {
+      "subject": "config.POSTGRES_SERVER",
+      "value": "localhost",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "POSTGRES_SERVER",
+          "symbol": "env",
+          "start_line": 35,
+          "end_line": 35
+        }
+      ]
+    },
+    {
+      "subject": "config.POSTGRES_PORT",
+      "value": "5432",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "POSTGRES_PORT",
+          "symbol": "env",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    },
+    {
+      "subject": "config.POSTGRES_DB",
+      "value": "app",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "POSTGRES_DB",
+          "symbol": "env",
+          "start_line": 37,
+          "end_line": 37
+        }
+      ]
+    },
+    {
+      "subject": "config.POSTGRES_USER",
+      "value": "postgres",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "POSTGRES_USER",
+          "symbol": "env",
+          "start_line": 38,
+          "end_line": 38
+        }
+      ]
+    },
+    {
+      "subject": "config.DOCKER_IMAGE_BACKEND",
+      "value": "backend",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "DOCKER_IMAGE_BACKEND",
+          "symbol": "env",
+          "start_line": 44,
+          "end_line": 44
+        }
+      ]
+    },
+    {
+      "subject": "config.DOCKER_IMAGE_FRONTEND",
+      "value": "frontend",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "DOCKER_IMAGE_FRONTEND",
+          "symbol": "env",
+          "start_line": 45,
+          "end_line": 45
+        }
+      ]
+    }
+  ],
+  "secrets": [
+    {
+      "subject": "secret.SECRET_KEY",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SECRET_KEY",
+          "symbol": "env",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "secret.FIRST_SUPERUSER_PASSWORD",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "FIRST_SUPERUSER_PASSWORD",
+          "symbol": "env",
+          "start_line": 23,
+          "end_line": 23
+        }
+      ]
+    },
+    {
+      "subject": "secret.SMTP_PASSWORD",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SMTP_PASSWORD",
+          "symbol": "env",
+          "start_line": 28,
+          "end_line": 28
+        }
+      ]
+    },
+    {
+      "subject": "secret.POSTGRES_PASSWORD",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "POSTGRES_PASSWORD",
+          "symbol": "env",
+          "start_line": 39,
+          "end_line": 39
+        }
+      ]
+    },
+    {
+      "subject": "secret.SENTRY_DSN",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate",
+      "evidence": [
+        {
+          "path": ".env",
+          "selector": "SENTRY_DSN",
+          "symbol": "env",
+          "start_line": 41,
+          "end_line": 41
+        }
+      ]
+    }
+  ],
+  "storage": [
+    {
+      "subject": "db.persistent_volume",
+      "value": {
+        "volume": "app-db-data",
+        "mount_path": "/var/lib/postgresql/data/pgdata"
+      },
+      "confidence": "explicit",
+      "kubernetes_effect": "PersistentVolumeClaim + volumeMount (StatefulSet volumeClaimTemplate candidate)",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.db.volumes[0]",
+          "symbol": null,
+          "start_line": 13,
+          "end_line": 13
+        }
+      ]
+    }
+  ],
+  "startup_order": [
+    {
+      "subject": "startup.order",
+      "value": [
+        "database becomes ready",
+        "run DB migrations",
+        "create initial data",
+        "backend starts"
+      ],
+      "confidence": "derived",
+      "kubernetes_effect": "overall ordering: DB -> migration Job -> seed -> application Deployments",
+      "evidence": []
+    },
+    {
+      "subject": "prestart.waits_for.db",
+      "value": "service_healthy",
+      "confidence": "explicit",
+      "kubernetes_effect": "ordering: gate via initContainer/readiness on the dependency",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.prestart.depends_on.db",
+          "symbol": null,
+          "start_line": 54,
+          "end_line": 56
+        }
+      ]
+    },
+    {
+      "subject": "backend.waits_for.db",
+      "value": "service_healthy",
+      "confidence": "explicit",
+      "kubernetes_effect": "ordering: gate via initContainer/readiness on the dependency",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend.depends_on.db",
+          "symbol": null,
+          "start_line": 86,
+          "end_line": 88
+        }
+      ]
+    },
+    {
+      "subject": "startup.migration",
+      "value": "alembic upgrade head",
+      "confidence": "explicit",
+      "kubernetes_effect": "run as a pre-deploy Job / initContainer before app starts",
+      "evidence": [
+        {
+          "path": "backend/scripts/prestart.sh",
+          "selector": "alembic upgrade",
+          "symbol": "shell",
+          "start_line": 10,
+          "end_line": 10
+        }
+      ]
+    },
+    {
+      "subject": "startup.initial_data",
+      "value": "python app/initial_data.py",
+      "confidence": "explicit",
+      "kubernetes_effect": "run once after migrations (same Job), before serving traffic",
+      "evidence": [
+        {
+          "path": "backend/scripts/prestart.sh",
+          "selector": "initial data",
+          "symbol": "shell",
+          "start_line": 13,
+          "end_line": 13
+        }
+      ]
+    },
+    {
+      "subject": "backend.waits_for.prestart",
+      "value": "service_completed_successfully",
+      "confidence": "explicit",
+      "kubernetes_effect": "app Deployment must start only after the init Job completes",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend.depends_on.prestart",
+          "symbol": null,
+          "start_line": 89,
+          "end_line": 90
+        }
+      ]
+    }
+  ],
+  "health_checks": [
+    {
+      "subject": "db.health_exec",
+      "value": "CMD-SHELL pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+      "confidence": "explicit",
+      "kubernetes_effect": "readiness probe exec.command candidate",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.db.healthcheck",
+          "symbol": null,
+          "start_line": 6,
+          "end_line": 11
+        }
+      ]
+    },
+    {
+      "subject": "backend.health_path",
+      "value": "/api/v1/utils/health-check/",
+      "confidence": "explicit",
+      "kubernetes_effect": "readiness/liveness probe httpGet.path candidate",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.backend.healthcheck",
+          "symbol": null,
+          "start_line": 112,
+          "end_line": 116
+        }
+      ]
+    }
+  ],
+  "build_time_constraints": [
+    {
+      "subject": "frontend.vite_api_url_binding",
+      "value": "build-time",
+      "confidence": "derived",
+      "kubernetes_effect": "VITE_API_URL is baked into the image at build time; it cannot be changed via runtime env/ConfigMap. Rebuild per environment or introduce runtime config.",
+      "evidence": [
+        {
+          "path": "compose.yml",
+          "selector": "$.services.frontend.build.args[0]",
+          "symbol": "build.arg",
+          "start_line": 149,
+          "end_line": 149
+        },
+        {
+          "path": "frontend/Dockerfile",
+          "selector": "ARG",
+          "symbol": "VITE_API_URL",
+          "start_line": 15,
+          "end_line": 15
+        },
+        {
+          "path": "frontend/src/main.tsx",
+          "selector": "VITE_API_URL",
+          "symbol": "import.meta.env",
+          "start_line": 16,
+          "end_line": 16
+        }
+      ]
+    }
+  ],
+  "unresolved_operational_inputs": [
+    {
+      "subject": "replica_count",
+      "reason": "desired availability/throughput is an operational decision, not in the repo",
+      "needed_input": "target replicas per Deployment (SLO / load expectations)",
+      "kubernetes_effect": "Deployment.spec.replicas",
+      "no_default_used": true
+    },
+    {
+      "subject": "resource_requests_limits",
+      "reason": "repo contains no CPU/memory sizing information",
+      "needed_input": "measured or estimated CPU/memory per component",
+      "kubernetes_effect": "container resources.requests / resources.limits",
+      "no_default_used": true
+    },
+    {
+      "subject": "ingress_class",
+      "reason": "cluster ingress controller is environment-specific (repo only shows Traefik labels)",
+      "needed_input": "target IngressClass in the destination cluster",
+      "kubernetes_effect": "Ingress.spec.ingressClassName",
+      "no_default_used": true
+    },
+    {
+      "subject": "horizontal_pod_autoscaler",
+      "reason": "no scaling policy is expressed in the repo",
+      "needed_input": "scaling metric and min/max replicas",
+      "kubernetes_effect": "HorizontalPodAutoscaler",
+      "no_default_used": true
+    },
+    {
+      "subject": "pod_disruption_budget",
+      "reason": "availability tolerance during disruptions is an operational decision",
+      "needed_input": "minAvailable/maxUnavailable policy",
+      "kubernetes_effect": "PodDisruptionBudget",
+      "no_default_used": true
+    },
+    {
+      "subject": "pvc_size",
+      "reason": "database volume size is not declared in the repo",
+      "needed_input": "expected data volume / growth for the database PVC",
+      "kubernetes_effect": "PersistentVolumeClaim.spec.resources.requests.storage",
+      "no_default_used": true
+    },
+    {
+      "subject": "storage_class",
+      "reason": "storage backend is cluster-specific",
+      "needed_input": "target StorageClass in the destination cluster",
+      "kubernetes_effect": "PersistentVolumeClaim.spec.storageClassName",
+      "no_default_used": true
+    },
+    {
+      "subject": "database_ha_and_backup",
+      "reason": "repo runs a single-container DB; HA and backup are operational policy",
+      "needed_input": "managed DB vs in-cluster HA, and backup/restore policy",
+      "kubernetes_effect": "operator/StatefulSet topology, backup CronJobs",
+      "no_default_used": true
+    }
+  ],
+  "warnings": [
+    {
+      "code": "compose_override_not_merged",
+      "message": "additional compose file detected but NOT merged in kubernetes-p0; analysis is based on the primary compose file",
+      "path": "compose.override.yml"
+    },
+    {
+      "code": "placeholder_secret",
+      "message": "SECRET_KEY uses a placeholder value; must be overridden before deploy",
+      "path": ".env"
+    },
+    {
+      "code": "placeholder_secret",
+      "message": "FIRST_SUPERUSER_PASSWORD uses a placeholder value; must be overridden before deploy",
+      "path": ".env"
+    },
+    {
+      "code": "placeholder_secret",
+      "message": "POSTGRES_PASSWORD uses a placeholder value; must be overridden before deploy",
+      "path": ".env"
+    }
+  ],
+  "unsupported_constructs": []
+}

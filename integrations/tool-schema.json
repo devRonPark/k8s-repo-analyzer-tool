@@ -1,0 +1,28 @@
+{
+  "type": "function",
+  "function": {
+    "name": "analyze_repository",
+    "description": "Deterministically analyze an application source repository and return the P0 structural context needed to begin a Kubernetes migration: components and service topology, images and Dockerfiles, build context/args, run command/entrypoint/worker count, container ports and exposed hosts, environment variables, Secret candidates, volumes and persistent data, health checks, service dependencies and startup order, DB migration/init tasks, whether the frontend API URL is build-time or runtime, Kubernetes workload drafts, and the operational inputs that CANNOT be decided from the repository. All facts are extracted by Python parsers with source-line evidence; no values are invented. Does NOT generate Kubernetes/Helm manifests.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "repository_path": {
+          "type": "string",
+          "description": "Filesystem path to the repository to analyze (read-only; never modified)."
+        },
+        "profile": {
+          "type": "string",
+          "enum": ["kubernetes-p0"],
+          "default": "kubernetes-p0",
+          "description": "Analysis profile. Only 'kubernetes-p0' is supported in this version."
+        },
+        "git_ref": {
+          "type": "string",
+          "description": "Optional commit SHA or ref to record in the result metadata for traceability. Purely informational; does not affect analysis."
+        }
+      },
+      "required": ["repository_path"],
+      "additionalProperties": false
+    }
+  }
+}

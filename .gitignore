@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local analysis output (examples/ is intentionally committed)
+/output/
+
+# Pre-existing agent-memory infrastructure (not part of this tool)
+/.agents/
+/.claude/
+/data/
+/skills-lock.json

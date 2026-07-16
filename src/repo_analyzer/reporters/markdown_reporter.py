@@ -1,0 +1,279 @@
+"""Workload-centric Markdown reporter.
+
+Structured so an engineer new to the repository can answer the seven P0
+migration questions. Content is derived entirely from the deterministic
+``AnalysisResult``; the reporter invents nothing.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from ..models import AnalysisResult, Component
+
+
+def to_markdown(result: AnalysisResult) -> str:
+    lines: list[str] = []
+    out = lines.append
+    repo = result.repository
+
+    out(f"# Kubernetes P0 Analysis — {repo.name}")
+    out("")
+    out(f"- Profile: `{repo.profile}`")
+    out(f"- Git ref: `{repo.git_ref}`" if repo.git_ref else "- Git ref: (not provided)")
+    out(f"- Detected files: {repo.file_count}")
+    out(f"- Schema version: {result.schema_version}")
+    out("")
+
+    _components_section(out, result)
+    _workloads_section(out, result)
+    _networking_section(out, result)
+    _storage_section(out, result)
+    _config_secret_section(out, result)
+    _startup_section(out, result)
+    _healthcheck_section(out, result)
+    _buildtime_section(out, result)
+    _unresolved_section(out, result)
+    _warnings_section(out, result)
+    _quick_answers_section(out, result)
+
+    return "\n".join(lines) + "\n"
+
+
+def _fmt_evidence(evidence) -> str:
+    parts = []
+    for ev in evidence:
+        loc = f"{ev.path}:{ev.start_line}-{ev.end_line}"
+        parts.append(f"`{loc}` ({ev.selector})")
+    return "; ".join(parts) if parts else "—"
+
+
+def _components_section(out, result: AnalysisResult) -> None:
+    out("## 1. Components")
+    out("")
+    if not result.components:
+        out("_No components detected._")
+        out("")
+        return
+    for comp in result.components:
+        _component_block(out, comp)
+
+
+def _component_block(out, comp: Component) -> None:
+    out(f"### {comp.name}")
+    out("")
+    out(f"- Build: {comp.dockerfile or comp.image or '(image only)'}"
+        + (f" (context `{comp.build_context}`)" if comp.build_context else ""))
+    out(f"- Image: `{comp.image}`" if comp.image else "- Image: (built locally)")
+    if comp.runtime:
+        out(f"- Runtime: {comp.runtime}")
+    if comp.command:
+        cmd = " ".join(comp.command)
+        out(f"- Command: `{cmd}`" + (f" (workers={comp.workers})" if comp.workers else ""))
+    if comp.container_ports:
+        out(f"- Container port: {', '.join(str(p) for p in comp.container_ports)}")
+    if comp.published_ports:
+        out(f"- Published (compose): {', '.join(comp.published_ports)}")
+    if comp.depends_on:
+        out(f"- Depends on: {', '.join(comp.depends_on)}")
+    if comp.environment:
+        out(f"- Environment: {', '.join(comp.environment)}")
+    if comp.secret_candidates:
+        out(f"- Secret candidates: {', '.join(comp.secret_candidates)}")
+    if comp.volumes:
+        out(f"- Volumes: {', '.join(comp.volumes)}")
+    if comp.healthcheck:
+        out(f"- Health check: {comp.healthcheck}")
+    out(f"- Kubernetes mapping: {comp.workload_candidate}")
+    if comp.unresolved:
+        out(f"- Unresolved: {', '.join(sorted(set(comp.unresolved)))}")
+    out("")
+
+
+def _workloads_section(out, result: AnalysisResult) -> None:
+    out("## 2. Kubernetes workload mappings")
+    out("")
+    if not result.workload_mappings:
+        out("_No workloads derived._")
+        out("")
+        return
+    out("| Component | Workload candidate | Rationale |")
+    out("| --- | --- | --- |")
+    for wm in result.workload_mappings:
+        out(f"| {wm.component} | {wm.kubernetes_kind} | {wm.rationale} |")
+    out("")
+
+
+def _networking_section(out, result: AnalysisResult) -> None:
+    out("## 3. Networking (ports & services)")
+    out("")
+    if not result.networking:
+        out("_No networking facts found._")
+        out("")
+        return
+    out("| Subject | Value | Confidence | Kubernetes effect | Evidence |")
+    out("| --- | --- | --- | --- | --- |")
+    for f in result.networking:
+        out(f"| {f.subject} | {f.value} | {f.confidence} | {f.kubernetes_effect} | {_fmt_evidence(f.evidence)} |")
+    out("")
+
+
+def _storage_section(out, result: AnalysisResult) -> None:
+    out("## 4. Persistent storage")
+    out("")
+    if not result.storage:
+        out("_No persistent volumes detected._")
+        out("")
+        return
+    for f in result.storage:
+        value = f.value
+        if isinstance(value, dict):
+            desc = f"`{value.get('volume')}` at `{value.get('mount_path')}`"
+        else:
+            desc = str(value)
+        out(f"- {f.subject}: {desc} — {f.kubernetes_effect} ({f.confidence}); evidence {_fmt_evidence(f.evidence)}")
+    out("")
+
+
+def _config_secret_section(out, result: AnalysisResult) -> None:
+    out("## 5. Configuration & Secrets")
+    out("")
+    out("### ConfigMap candidates")
+    out("")
+    if result.configuration:
+        out("| Key | Default | Evidence |")
+        out("| --- | --- | --- |")
+        for f in result.configuration:
+            shown = "" if f.value == "" else f.value
+            out(f"| {f.subject.removeprefix('config.')} | {shown} | {_fmt_evidence(f.evidence)} |")
+    else:
+        out("_None detected._")
+    out("")
+    out("### Secret candidates")
+    out("")
+    if result.secrets:
+        out("| Key | Evidence |")
+        out("| --- | --- |")
+        for f in result.secrets:
+            out(f"| {f.subject.removeprefix('secret.')} | {_fmt_evidence(f.evidence)} |")
+    else:
+        out("_None detected._")
+    out("")
+
+
+def _startup_section(out, result: AnalysisResult) -> None:
+    out("## 6. Startup order & initialization")
+    out("")
+    if not result.startup_order:
+        out("_No explicit ordering constraints found._")
+        out("")
+        return
+    for f in result.startup_order:
+        if f.subject == "startup.order" and isinstance(f.value, list):
+            out("Overall order (derived):")
+            out("")
+            for step_index, step in enumerate(f.value, start=1):
+                out(f"{step_index}. {step}")
+            out("")
+    for f in result.startup_order:
+        if f.subject == "startup.order":
+            continue
+        out(f"- {f.subject}: `{f.value}` — {f.kubernetes_effect} ({f.confidence}); evidence {_fmt_evidence(f.evidence)}")
+    out("")
+
+
+def _healthcheck_section(out, result: AnalysisResult) -> None:
+    out("## 7. Health checks")
+    out("")
+    if not result.health_checks:
+        out("_No health checks defined._")
+        out("")
+        return
+    for f in result.health_checks:
+        out(f"- {f.subject}: `{f.value}` — {f.kubernetes_effect} ({f.confidence}); evidence {_fmt_evidence(f.evidence)}")
+    out("")
+
+
+def _buildtime_section(out, result: AnalysisResult) -> None:
+    out("## 8. Build-time constraints")
+    out("")
+    if not result.build_time_constraints:
+        out("_None detected._")
+        out("")
+        return
+    for f in result.build_time_constraints:
+        out(f"- {f.subject}: **{f.value}** — {f.kubernetes_effect} ({f.confidence})")
+        out(f"  - evidence: {_fmt_evidence(f.evidence)}")
+    out("")
+
+
+def _unresolved_section(out, result: AnalysisResult) -> None:
+    out("## 9. Unresolved operational inputs")
+    out("")
+    out("_These are NOT decided from the repository. No default values were invented._")
+    out("")
+    out("| Subject | Why unresolved | Input needed | Kubernetes effect |")
+    out("| --- | --- | --- | --- |")
+    for u in result.unresolved_operational_inputs:
+        out(f"| {u.subject} | {u.reason} | {u.needed_input} | {u.kubernetes_effect} |")
+    out("")
+
+
+def _warnings_section(out, result: AnalysisResult) -> None:
+    out("## 10. Warnings & unsupported constructs")
+    out("")
+    if result.warnings:
+        out("Warnings:")
+        out("")
+        for w in result.warnings:
+            location = f" (`{w.path}`)" if w.path else ""
+            out(f"- [{w.code}] {w.message}{location}")
+        out("")
+    else:
+        out("_No warnings._")
+        out("")
+    if result.unsupported_constructs:
+        out("Unsupported constructs:")
+        out("")
+        for u in result.unsupported_constructs:
+            out(f"- `{u.path}` — {u.construct_type}: {u.detail}")
+        out("")
+    else:
+        out("_No unsupported constructs._")
+        out("")
+
+
+def _quick_answers_section(out, result: AnalysisResult) -> None:
+    out("## Quick answers")
+    out("")
+    comps = ", ".join(c.name for c in result.components) or "none"
+    out(f"1. **Components?** {comps}")
+    workloads = "; ".join(f"{c.name} → {c.workload_candidate}" for c in result.components) or "none"
+    out(f"2. **Which workloads?** {workloads}")
+    ports = "; ".join(
+        f"{f.subject.replace('.container_port', '')}:{f.value}"
+        for f in result.networking
+        if f.subject.endswith(".container_port")
+    ) or "none"
+    out(f"3. **Ports/Services?** {ports}")
+    storage = "; ".join(
+        f"{f.value.get('volume')}→{f.value.get('mount_path')}"
+        for f in result.storage
+        if isinstance(f.value, dict)
+    ) or "none"
+    out(f"4. **What must persist?** {storage}")
+    out(f"5. **ConfigMap/Secret?** {len(result.configuration)} config keys, {len(result.secrets)} secret keys")
+    inits = "; ".join(
+        str(f.value)
+        for f in result.startup_order
+        if f.subject in {"startup.migration", "startup.initial_data"}
+    ) or "none detected"
+    out(f"6. **Init first?** {inits}")
+    out(f"7. **Undecidable from repo?** {len(result.unresolved_operational_inputs)} operational inputs (see section 9)")
+    out("")
+
+
+def write_markdown(result: AnalysisResult, path: str | Path) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(to_markdown(result), encoding="utf-8")
