@@ -38,6 +38,7 @@ _COMPOSE_PRIMARY_ORDER = [
 
 _SHELL_INIT_NAMES = {"prestart.sh", "entrypoint.sh", "start.sh", "run.sh", "docker-entrypoint.sh"}
 _SETTINGS_NAMES = {"config.py", "settings.py"}
+_BUILD_WRAPPER_NAMES = {"mvnw", "mvnw.cmd", "gradlew", "gradlew.bat"}
 
 
 @dataclass
@@ -51,6 +52,11 @@ class Inventory:
     settings_files: list[str] = field(default_factory=list)
     shell_scripts: list[str] = field(default_factory=list)
     alembic_files: list[str] = field(default_factory=list)
+    maven_files: list[str] = field(default_factory=list)
+    web_descriptors: list[str] = field(default_factory=list)
+    spring_xml_files: list[str] = field(default_factory=list)
+    readme_files: list[str] = field(default_factory=list)
+    build_wrappers: list[str] = field(default_factory=list)
     detected: list[DetectedFile] = field(default_factory=list)
 
 
@@ -72,6 +78,26 @@ def _is_dotenv(name: str) -> bool:
 def _is_nginx(name: str) -> bool:
     lower = name.lower()
     return lower.endswith(".conf") and ("nginx" in lower or lower == "default.conf")
+
+
+def _is_readme(name: str) -> bool:
+    return name.lower().split(".", 1)[0] == "readme"
+
+
+_SPRING_XML_NAME_HINTS = ("applicationcontext", "spring")
+
+
+def _is_spring_xml_candidate(rel: str, name: str) -> bool:
+    """Cheap name/location heuristic; the parser confirms it is truly Spring."""
+
+    lower = name.lower()
+    if not lower.endswith(".xml") or lower == "web.xml":
+        return False
+    if "/WEB-INF/" in f"/{rel}" or rel == "WEB-INF" or "WEB-INF" in rel.split("/"):
+        return True
+    if lower in {"applicationcontext.xml", "beans.xml"} or lower.endswith("-context.xml"):
+        return True
+    return any(lower.startswith(hint) for hint in _SPRING_XML_NAME_HINTS)
 
 
 def build_inventory(root: Path) -> Inventory:
@@ -103,6 +129,16 @@ def build_inventory(root: Path) -> Inventory:
             inv.shell_scripts.append(rel)
         elif name == "alembic.ini":
             inv.alembic_files.append(rel)
+        elif name == "pom.xml":
+            inv.maven_files.append(rel)
+        elif name == "web.xml":
+            inv.web_descriptors.append(rel)
+        elif name in _BUILD_WRAPPER_NAMES:
+            inv.build_wrappers.append(rel)
+        elif _is_readme(name):
+            inv.readme_files.append(rel)
+        if name != "web.xml" and _is_spring_xml_candidate(rel, name):
+            inv.spring_xml_files.append(rel)
 
     inv.compose_primary = _pick_primary_compose(compose_candidates)
     inv.compose_extra = sorted(c for c in compose_candidates if c != inv.compose_primary)
@@ -132,4 +168,8 @@ def _build_detected(inv: Inventory, compose_candidates: list[str]) -> list[Detec
     detected += [DetectedFile(path=p, kind="python-settings") for p in inv.settings_files]
     detected += [DetectedFile(path=p, kind="shell-init") for p in inv.shell_scripts]
     detected += [DetectedFile(path=p, kind="alembic") for p in inv.alembic_files]
+    detected += [DetectedFile(path=p, kind="maven-pom") for p in inv.maven_files]
+    detected += [DetectedFile(path=p, kind="web-descriptor") for p in inv.web_descriptors]
+    detected += [DetectedFile(path=p, kind="build-wrapper") for p in inv.build_wrappers]
+    detected += [DetectedFile(path=p, kind="readme") for p in inv.readme_files]
     return sorted(detected, key=lambda d: d.path)

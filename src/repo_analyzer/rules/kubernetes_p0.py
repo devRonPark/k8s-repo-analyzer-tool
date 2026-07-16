@@ -22,12 +22,17 @@ from ..models import (
     Warning,
     WorkloadMapping,
 )
+from ..models import DetectedFile
 from ..parsers.common import Located
 from ..parsers.compose import ComposeFile, ComposeService
 from ..parsers.dockerfile import Dockerfile, exec_form
 from ..parsers.dotenv import DotenvFile
+from ..parsers.maven import MavenProject
 from ..parsers.nginx import NginxConfig
 from ..parsers.python_settings import PythonSettings
+from ..parsers.spring_xml import SpringContext
+from ..parsers.webxml import WebApp
+from .java_webapp import analyze_java_webapp
 
 # Substrings (case-insensitive) that mark an env var as a Secret candidate.
 _SECRET_PATTERNS = (
@@ -120,6 +125,37 @@ def _split_volume(spec: str) -> tuple[str, str] | None:
     return None
 
 
+def _implicit_dockerfile(
+    build_context: str, dockerfiles: dict[str, Dockerfile]
+) -> tuple[str, Dockerfile] | None:
+    """Resolve the default ``<context>/Dockerfile`` a compose build would use."""
+
+    context = build_context.strip()
+    if context in ("", "."):
+        candidate = "Dockerfile"
+    else:
+        candidate = f"{context.rstrip('/')}/Dockerfile"
+    candidate = candidate.lstrip("./") if candidate.startswith("./") else candidate
+    obj = dockerfiles.get(candidate)
+    if obj is not None:
+        return candidate, obj
+    return None
+
+
+def _published_container_port(ports: list[Located]) -> tuple[int, Located] | None:
+    """Container-side port of a ``host:container`` (or bare ``container``) mapping."""
+
+    for port in ports:
+        spec = str(port.value).strip()
+        # Strip an optional protocol suffix (e.g. "8080:8080/tcp").
+        spec = spec.split("/", 1)[0]
+        segments = spec.split(":")
+        container_side = segments[-1]
+        if container_side.isdigit():
+            return int(container_side), port
+    return None
+
+
 def analyze_kubernetes_p0(
     *,
     repo_name: str,
@@ -132,8 +168,17 @@ def analyze_kubernetes_p0(
     nginx: dict[str, NginxConfig],
     settings: dict[str, PythonSettings],
     shell_scripts: dict[str, list[str]],
+    mavens: dict[str, MavenProject] | None = None,
+    webapps: dict[str, WebApp] | None = None,
+    springs: dict[str, SpringContext] | None = None,
+    readmes: dict[str, list[str]] | None = None,
     env_usage: dict[str, list[tuple[str, int]]],
 ) -> AnalysisResult:
+    mavens = mavens or {}
+    webapps = webapps or {}
+    springs = springs or {}
+    readmes = readmes or {}
+
     result = AnalysisResult(
         repository=RepositoryMetadata(
             name=repo_name,
@@ -145,32 +190,61 @@ def analyze_kubernetes_p0(
     )
 
     _collect_unsupported(result, compose, dockerfiles, dotenvs, nginx, settings)
+    _register_spring_detected(result, springs)
     _warn_extra_compose(result, inventory)
 
-    if compose is None:
+    # Nothing to analyze at all: honestly report the absence and stop.
+    if compose is None and not mavens:
         result.warnings.append(
             Warning(code="no_compose", message="no compose file found; component topology unavailable")
         )
         _emit_operational_unresolved(result, has_db=False)
         return result
 
-    compose_path = inventory.compose_primary or compose.path
+    compose_path = inventory.compose_primary or (compose.path if compose else None)
     main_nginx = _main_nginx(nginx)
 
-    for service in compose.services:
-        _analyze_service(
+    if compose is not None:
+        for service in compose.services:
+            _analyze_service(
+                result=result,
+                service=service,
+                compose_path=compose_path,
+                dockerfiles=dockerfiles,
+                main_nginx=main_nginx,
+                env_usage=env_usage,
+            )
+        _analyze_config_and_secrets(result, dotenvs)
+        _analyze_startup(result, compose, compose_path, inventory, shell_scripts)
+
+    # Java/Maven web-application path (works with or without a compose file).
+    if mavens:
+        analyze_java_webapp(
             result=result,
-            service=service,
+            inventory=inventory,
+            compose=compose,
             compose_path=compose_path,
             dockerfiles=dockerfiles,
-            main_nginx=main_nginx,
-            env_usage=env_usage,
+            mavens=mavens,
+            webapps=webapps,
+            springs=springs,
+            readmes=readmes,
         )
 
-    _analyze_config_and_secrets(result, dotenvs)
-    _analyze_startup(result, compose, compose_path, inventory, shell_scripts)
-    _emit_operational_unresolved(result, has_db=_has_db(compose))
+    has_db = _has_db(compose) if compose is not None else False
+    _emit_operational_unresolved(result, has_db=has_db)
     return result
+
+
+def _register_spring_detected(result: AnalysisResult, springs: dict[str, SpringContext]) -> None:
+    if not springs:
+        return
+    existing = {d.path for d in result.detected_files}
+    for path in springs:
+        if path not in existing:
+            result.detected_files.append(DetectedFile(path=path, kind="spring-context"))
+    result.detected_files.sort(key=lambda d: d.path)
+    result.repository.file_count = len(result.detected_files)
 
 
 # --------------------------------------------------------------------------- #
@@ -199,6 +273,14 @@ def _analyze_service(
             component.source_files.append(component.dockerfile)
     if service.build_context:
         component.build_context = str(service.build_context.value)
+    # Resolve the implicit `<context>/Dockerfile` when compose omits `dockerfile`.
+    if dockerfile_obj is None and component.build_context is not None:
+        implicit = _implicit_dockerfile(component.build_context, dockerfiles)
+        if implicit is not None:
+            rel, dockerfile_obj = implicit
+            component.dockerfile = rel
+            if rel not in component.source_files:
+                component.source_files.append(rel)
     component.build_args = [_env_name(a.value) for a in service.build_args]
 
     # Command resolution: compose command wins, else Dockerfile CMD (exec form).
@@ -361,6 +443,12 @@ def _resolve_port(
                 "derived",
                 [_ev(service.image, compose_path, "image.default_port")],
             )
+
+    # Final fallback: the container side of a published `host:container` mapping.
+    published = _published_container_port(service.ports)
+    if published is not None:
+        port_value, located = published
+        return port_value, "explicit", [_ev(located, compose_path, "ports.published")]
     return None, "explicit", []
 
 
@@ -668,7 +756,7 @@ def _emit_operational_unresolved(result: AnalysisResult, *, has_db: bool) -> Non
         ),
         Unresolved(
             subject="ingress_class",
-            reason="cluster ingress controller is environment-specific (repo only shows Traefik labels)",
+            reason="cluster ingress controller is environment-specific and not declared in the repo",
             needed_input="target IngressClass in the destination cluster",
             kubernetes_effect="Ingress.spec.ingressClassName",
         ),

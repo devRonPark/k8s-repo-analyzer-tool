@@ -29,10 +29,12 @@ def to_markdown(result: AnalysisResult) -> str:
     _workloads_section(out, result)
     _networking_section(out, result)
     _storage_section(out, result)
+    _dependencies_section(out, result)
     _config_secret_section(out, result)
     _startup_section(out, result)
     _healthcheck_section(out, result)
     _buildtime_section(out, result)
+    _image_section(out, result)
     _unresolved_section(out, result)
     _warnings_section(out, result)
     _quick_answers_section(out, result)
@@ -65,6 +67,18 @@ def _component_block(out, comp: Component) -> None:
     out(f"- Build: {comp.dockerfile or comp.image or '(image only)'}"
         + (f" (context `{comp.build_context}`)" if comp.build_context else ""))
     out(f"- Image: `{comp.image}`" if comp.image else "- Image: (built locally)")
+    if comp.language:
+        out(f"- Language: {comp.language}")
+    if comp.frameworks:
+        out(f"- Frameworks: {', '.join(comp.frameworks)}")
+    if comp.build_tool:
+        out(f"- Build tool: {comp.build_tool}")
+    if comp.build_command:
+        out(f"- Build command: `{comp.build_command}`")
+    if comp.build_artifact:
+        out(f"- Build artifact: `{comp.build_artifact}`" + (f" ({comp.packaging})" if comp.packaging else ""))
+    if comp.application_server:
+        out(f"- Application server: {comp.application_server}")
     if comp.runtime:
         out(f"- Runtime: {comp.runtime}")
     if comp.command:
@@ -72,6 +86,8 @@ def _component_block(out, comp: Component) -> None:
         out(f"- Command: `{cmd}`" + (f" (workers={comp.workers})" if comp.workers else ""))
     if comp.container_ports:
         out(f"- Container port: {', '.join(str(p) for p in comp.container_ports)}")
+    if comp.context_path:
+        out(f"- HTTP context path: `{comp.context_path}`")
     if comp.published_ports:
         out(f"- Published (compose): {', '.join(comp.published_ports)}")
     if comp.depends_on:
@@ -80,6 +96,8 @@ def _component_block(out, comp: Component) -> None:
         out(f"- Environment: {', '.join(comp.environment)}")
     if comp.secret_candidates:
         out(f"- Secret candidates: {', '.join(comp.secret_candidates)}")
+    if comp.runtime_dependencies:
+        out(f"- Runtime dependencies: {', '.join(comp.runtime_dependencies)}")
     if comp.volumes:
         out(f"- Volumes: {', '.join(comp.volumes)}")
     if comp.healthcheck:
@@ -135,20 +153,57 @@ def _storage_section(out, result: AnalysisResult) -> None:
     out("")
 
 
+def _dependencies_section(out, result: AnalysisResult) -> None:
+    out("## 4b. Runtime dependencies (external services & datastores)")
+    out("")
+    if not result.runtime_dependencies:
+        out("_No external runtime dependencies detected._")
+        out("")
+        return
+    for f in result.runtime_dependencies:
+        out(f"- {f.subject}: **{f.value}** — {f.kubernetes_effect} ({f.confidence}); evidence {_fmt_evidence(f.evidence)}")
+    out("")
+
+
+def _image_section(out, result: AnalysisResult) -> None:
+    out("## 8b. Container image build & runtime")
+    out("")
+    if not result.container_image:
+        out("_No container image facts detected._")
+        out("")
+        return
+    for f in result.container_image:
+        out(f"- {f.subject}: **{f.value}** — {f.kubernetes_effect} ({f.confidence})")
+        out(f"  - evidence: {_fmt_evidence(f.evidence)}")
+    out("")
+
+
 def _config_secret_section(out, result: AnalysisResult) -> None:
     out("## 5. Configuration & Secrets")
     out("")
+    config_keys = [f for f in result.configuration if "ConfigMap key candidate" in f.kubernetes_effect]
+    stack_facts = [f for f in result.configuration if "ConfigMap key candidate" not in f.kubernetes_effect]
+
     out("### ConfigMap candidates")
     out("")
-    if result.configuration:
+    if config_keys:
         out("| Key | Default | Evidence |")
         out("| --- | --- | --- |")
-        for f in result.configuration:
+        for f in config_keys:
             shown = "" if f.value == "" else f.value
             out(f"| {f.subject.removeprefix('config.')} | {shown} | {_fmt_evidence(f.evidence)} |")
     else:
         out("_None detected._")
     out("")
+
+    if stack_facts:
+        out("### Stack, build & profile facts")
+        out("")
+        out("| Subject | Value | Kubernetes effect | Evidence |")
+        out("| --- | --- | --- | --- |")
+        for f in stack_facts:
+            out(f"| {f.subject} | {f.value} | {f.kubernetes_effect} | {_fmt_evidence(f.evidence)} |")
+        out("")
     out("### Secret candidates")
     out("")
     if result.secrets:
@@ -262,14 +317,23 @@ def _quick_answers_section(out, result: AnalysisResult) -> None:
         if isinstance(f.value, dict)
     ) or "none"
     out(f"4. **What must persist?** {storage}")
-    out(f"5. **ConfigMap/Secret?** {len(result.configuration)} config keys, {len(result.secrets)} secret keys")
+    configmap_keys = sum(
+        1 for f in result.configuration if "ConfigMap key candidate" in f.kubernetes_effect
+    )
+    out(f"5. **ConfigMap/Secret?** {configmap_keys} ConfigMap keys, {len(result.secrets)} secret keys")
     inits = "; ".join(
         str(f.value)
         for f in result.startup_order
-        if f.subject in {"startup.migration", "startup.initial_data"}
+        if f.subject in {"startup.migration", "startup.initial_data", "startup.db_init"}
     ) or "none detected"
     out(f"6. **Init first?** {inits}")
-    out(f"7. **Undecidable from repo?** {len(result.unresolved_operational_inputs)} operational inputs (see section 9)")
+    deps = "; ".join(str(f.value) for f in result.runtime_dependencies) or "none"
+    out(f"7. **External runtime dependencies?** {deps}")
+    paths = "; ".join(
+        f"{c.name}:{c.context_path}" for c in result.components if c.context_path
+    ) or "/ (root)"
+    out(f"8. **HTTP context path?** {paths}")
+    out(f"9. **Undecidable from repo?** {len(result.unresolved_operational_inputs)} operational inputs (see section 9)")
     out("")
 
 

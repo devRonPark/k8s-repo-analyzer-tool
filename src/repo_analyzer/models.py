@@ -68,7 +68,11 @@ class DetectedFile(_Model):
 
 
 class Component(_Model):
-    """Workload-centric summary of one application component (compose service)."""
+    """Workload-centric summary of one application component.
+
+    A component is usually a compose service, but may also be a build project
+    (e.g. a Maven module) discovered without a compose file.
+    """
 
     name: str
     source_files: list[str] = Field(default_factory=list)
@@ -76,13 +80,22 @@ class Component(_Model):
     build_context: str | None = None
     dockerfile: str | None = None
     build_args: list[str] = Field(default_factory=list)
+    language: str | None = None
+    frameworks: list[str] = Field(default_factory=list)
+    build_tool: str | None = None
+    build_command: str | None = None
+    build_artifact: str | None = None
+    packaging: str | None = None
+    application_server: str | None = None
     runtime: str | None = None
     command: list[str] | None = None
     workers: int | None = None
     container_ports: list[int] = Field(default_factory=list)
+    context_path: str | None = None
     published_ports: list[str] = Field(default_factory=list)
     environment: list[str] = Field(default_factory=list)
     secret_candidates: list[str] = Field(default_factory=list)
+    runtime_dependencies: list[str] = Field(default_factory=list)
     volumes: list[str] = Field(default_factory=list)
     healthcheck: str | None = None
     depends_on: list[str] = Field(default_factory=list)
@@ -118,9 +131,11 @@ class AnalysisResult(_Model):
     configuration: list[Finding] = Field(default_factory=list)
     secrets: list[Finding] = Field(default_factory=list)
     storage: list[Finding] = Field(default_factory=list)
+    runtime_dependencies: list[Finding] = Field(default_factory=list)
     startup_order: list[Finding] = Field(default_factory=list)
     health_checks: list[Finding] = Field(default_factory=list)
     build_time_constraints: list[Finding] = Field(default_factory=list)
+    container_image: list[Finding] = Field(default_factory=list)
     unresolved_operational_inputs: list[Unresolved] = Field(default_factory=list)
     warnings: list[Warning] = Field(default_factory=list)
     unsupported_constructs: list[UnsupportedConstruct] = Field(default_factory=list)

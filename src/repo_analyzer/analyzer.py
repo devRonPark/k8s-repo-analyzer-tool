@@ -14,8 +14,11 @@ from .models import AnalysisResult
 from .parsers.compose import ComposeFile, parse_compose
 from .parsers.dockerfile import Dockerfile, parse_dockerfile
 from .parsers.dotenv import DotenvFile, parse_dotenv
+from .parsers.maven import MavenProject, parse_maven
 from .parsers.nginx import NginxConfig, parse_nginx
 from .parsers.python_settings import PythonSettings, parse_python_settings
+from .parsers.spring_xml import SpringContext, parse_spring_xml
+from .parsers.webxml import WebApp, parse_webxml
 from .rules.kubernetes_p0 import analyze_kubernetes_p0
 
 SUPPORTED_PROFILES = {"kubernetes-p0"}
@@ -70,6 +73,21 @@ def analyze_repository(
         rel: _read(root, rel).splitlines() for rel in inventory.shell_scripts
     }
 
+    mavens: dict[str, MavenProject] = {
+        rel: parse_maven(_read(root, rel), rel) for rel in inventory.maven_files
+    }
+    webapps: dict[str, WebApp] = {
+        rel: parse_webxml(_read(root, rel), rel) for rel in inventory.web_descriptors
+    }
+    springs: dict[str, SpringContext] = {}
+    for rel in inventory.spring_xml_files:
+        parsed = parse_spring_xml(_read(root, rel), rel)
+        if parsed.is_spring:
+            springs[rel] = parsed
+    readmes: dict[str, list[str]] = {
+        rel: _read(root, rel).splitlines() for rel in inventory.readme_files
+    }
+
     build_arg_names = _collect_build_arg_names(compose)
     env_usage = _scan_env_usage(root, build_arg_names)
 
@@ -84,6 +102,10 @@ def analyze_repository(
         nginx=nginx,
         settings=settings,
         shell_scripts=shell_scripts,
+        mavens=mavens,
+        webapps=webapps,
+        springs=springs,
+        readmes=readmes,
         env_usage=env_usage,
     )
 
