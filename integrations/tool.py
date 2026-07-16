@@ -26,16 +26,22 @@ def analyze_repository(
     repository_path: str,
     profile: str = "kubernetes-p0",
     git_ref: str | None = None,
+    build_system: str = "auto",
 ) -> dict[str, Any]:
     """Analyze a repository and return a deterministic, JSON-safe result dict.
 
-    On expected errors (missing path, unsupported profile) a structured error
-    object is returned instead of raising, so agents report the failure rather
-    than falling back to generic Kubernetes advice.
+    ``build_system`` (``auto`` | ``gradle`` | ``maven``) forces which build system
+    is analyzed when a repository ships more than one.
+
+    On expected errors (missing path, unsupported profile/build system) a
+    structured error object is returned instead of raising, so agents report the
+    failure rather than falling back to generic Kubernetes advice.
     """
 
     try:
-        result = _analyze(repository_path, profile=profile, git_ref=git_ref)
+        result = _analyze(
+            repository_path, profile=profile, git_ref=git_ref, build_system=build_system
+        )
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         return {
             "ok": False,

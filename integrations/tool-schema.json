@@ -16,6 +16,12 @@
           "default": "kubernetes-p0",
           "description": "Analysis profile. Only 'kubernetes-p0' is supported in this version."
         },
+        "build_system": {
+          "type": "string",
+          "enum": ["auto", "gradle", "maven"],
+          "default": "auto",
+          "description": "Which build system to analyze when a repository ships more than one (e.g. both build.gradle and pom.xml). 'auto' selects deterministically and records the choice and how to switch."
+        },
         "git_ref": {
           "type": "string",
           "description": "Optional commit SHA or ref to record in the result metadata for traceability. Purely informational; does not affect analysis."

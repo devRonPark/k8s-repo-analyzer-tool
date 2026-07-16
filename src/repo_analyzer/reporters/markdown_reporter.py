@@ -64,7 +64,13 @@ def _components_section(out, result: AnalysisResult) -> None:
 def _component_block(out, comp: Component) -> None:
     out(f"### {comp.name}")
     out("")
-    out(f"- Build: {comp.dockerfile or comp.image or '(image only)'}"
+    if comp.dockerfile:
+        build_source = comp.dockerfile
+    elif comp.build_tool:
+        build_source = f"via {comp.build_tool}"
+    else:
+        build_source = comp.image or "(image only)"
+    out(f"- Build: {build_source}"
         + (f" (context `{comp.build_context}`)" if comp.build_context else ""))
     out(f"- Image: `{comp.image}`" if comp.image else "- Image: (built locally)")
     if comp.language:

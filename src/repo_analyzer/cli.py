@@ -23,6 +23,12 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument(
         "--profile", default="kubernetes-p0", help="analysis profile (default: kubernetes-p0)"
     )
+    analyze.add_argument(
+        "--build-system",
+        default="auto",
+        choices=["auto", "gradle", "maven"],
+        help="which build system to analyze when several are present (default: auto)",
+    )
     analyze.add_argument("--git-ref", default=None, help="optional commit/ref to record in metadata")
     analyze.add_argument("--json-output", default=None, help="path to write the JSON report")
     analyze.add_argument("--markdown-output", default=None, help="path to write the Markdown report")
@@ -31,7 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _run_analyze(args: argparse.Namespace) -> int:
     try:
-        result = analyze_repository(args.repo, profile=args.profile, git_ref=args.git_ref)
+        result = analyze_repository(
+            args.repo,
+            profile=args.profile,
+            git_ref=args.git_ref,
+            build_system=args.build_system,
+        )
     except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
