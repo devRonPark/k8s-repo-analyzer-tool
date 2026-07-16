@@ -1,0 +1,3 @@
+#!/bin/sh
+# Placeholder for Maven wrapper. Only its presence is used (build-tool detection);
+# the analyzer never reads its contents. Pinned fixture keeps it minimal.
