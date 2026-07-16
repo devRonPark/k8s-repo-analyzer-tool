@@ -10,9 +10,13 @@ repository content → **byte-identical JSON**. Facts are extracted by Python
 parsers with source-line evidence; **no LLM inspects the repo**. An Agent Skill is
 only a thin layer that detects intent, calls the tool, and explains the result.
 
-Only the `kubernetes-p0` profile exists. Two stack families are supported:
-compose/Dockerfile stacks (FastAPI-style) and **Maven / Java web applications**
-(WAR on an external servlet container — pom.xml, web.xml, Spring datasources).
+Only the `kubernetes-p0` profile exists. Three stack families are supported:
+compose/Dockerfile stacks (FastAPI-style); **Maven / Java web applications**
+(WAR on an external servlet container — pom.xml, web.xml, Spring datasources);
+and **Spring Boot / Gradle applications** (spring-petclinic-style — build.gradle,
+settings.gradle, application*.properties, SQL init). When a repo ships more than
+one build system, it is **selected deliberately** (listed, chosen with rationale,
+overridable via `--build-system {auto,gradle,maven}`), never "the first pom.xml".
 **Non-goals** (do not add without a request): Kubernetes/Helm manifest
 generation, resource sizing, replica/PVC/HPA/PDB/StorageClass/IngressClass
 decisions, full business-code or security analysis, P1/P2 depth.
@@ -40,26 +44,33 @@ decisions, full business-code or security analysis, P1/P2 depth.
 ## Architecture (one-way, no cycles)
 
 ```
-inventory  ->  parsers  ->  rules/{kubernetes_p0,java_webapp}  ->  models  ->  reporters
+inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring_boot}  ->  models  ->  reporters
 ```
 
 - `src/repo_analyzer/inventory.py` — discover P0-relevant files by name/pattern
   (no content parsing). Picks the primary compose file; extra compose files are
   detected but **not merged** (warning emitted). Also detects `pom.xml`,
-  `web.xml`, Spring-context XML candidates, README, and build wrappers (`mvnw`).
+  `build.gradle`(`.kts`) + `settings.gradle` + `gradle-wrapper.properties`,
+  `application*.properties` (and flags `application*.yml`), schema/data `.sql`,
+  `web.xml`, Spring-context XML candidates, README, and build wrappers
+  (`mvnw`/`gradlew`). Skips `.devcontainer` (dev tooling, not the app image).
 - `src/repo_analyzer/parsers/` — one module per format, each preserving source
   line ranges via `common.Located`:
   `compose.py` (ruamel.yaml, line-preserving), `dockerfile.py` (instruction-level,
   joins `\` continuations), `dotenv.py`, `nginx.py` (brace/`;` tokenizer),
-  `python_settings.py` (AST → `BaseSettings` fields), and for Java:
-  `xml_source.py` (line-preserving SAX XML tree), `maven.py` (pom.xml: packaging,
-  finalName, java version, deps+scope, profiles→app servers), `webxml.py`
-  (servlets/listeners/mappings), `spring_xml.py` (embedded vs external datasource).
+  `python_settings.py` (AST → `BaseSettings` fields); for Java/Maven:
+  `xml_source.py` (line-preserving SAX XML tree), `maven.py`, `webxml.py`,
+  `spring_xml.py`; for Gradle/Spring Boot: `gradle.py` (build.gradle plugins/deps/
+  toolchain via brace-block parsing; settings + wrapper), `spring_properties.py`
+  (application*.properties + `${ENV:default}` placeholders), `sql_init.py`
+  (schema idempotency markers).
 - `src/repo_analyzer/rules/kubernetes_p0.py` — **pure function**: parsed facts in,
   `AnalysisResult` out. The only place explicit facts become derived conclusions
-  and unknowns become `unresolved`. No I/O here. Runs the compose path, then
-  delegates Maven/WAR analysis to `rules/java_webapp.py:analyze_java_webapp`
-  (also pure; enriches the matching component or synthesizes one without compose).
+  and unknowns become `unresolved`. No I/O here. Runs the compose path, resolves
+  the build system via `rules/build_system.py` (lists all, records the choice +
+  override), then delegates to `rules/spring_boot.py:analyze_spring_boot` (Gradle)
+  or `rules/java_webapp.py:analyze_java_webapp` (Maven) — both pure; enrich the
+  matching component or synthesize one without compose.
 - `src/repo_analyzer/models.py` — Pydantic v2 schema; field order is intentional
   (fixes JSON key order). `extra="forbid"`.
 - `src/repo_analyzer/reporters/` — `json_reporter.py` (canonical bytes),
@@ -92,13 +103,17 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,java_webapp}  ->  models  ->  r
 `container_image` = image build/run facts & risks. `Component` also carries a
 workload summary: `language`, `frameworks`, `build_tool`, `build_command`,
 `build_artifact`, `packaging`, `application_server`, `context_path`,
-`runtime_dependencies`.)
+`runtime_dependencies`. Build-system selection is reported as `configuration`
+findings `build.system` / `build.system.selection`.)
+
+The library signature is
+`analyze_repository(repository_path, profile="kubernetes-p0", git_ref=None, build_system="auto")`.
 
 ## Commands
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 79 tests, fully offline
+uv run pytest                             # 138 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \
@@ -107,23 +122,33 @@ uv run repo-analyzer analyze \
 # Maven WAR category:
 uv run repo-analyzer analyze --repo tests/fixtures/jpetstore-6 \
   --json-output ./output/jpetstore.json --markdown-output ./output/jpetstore.md
+# Spring Boot + Gradle category (both build systems present -> pick gradle):
+uv run repo-analyzer analyze --repo tests/fixtures/spring-petclinic \
+  --build-system gradle \
+  --json-output ./output/spring-petclinic.json \
+  --markdown-output ./output/spring-petclinic.md
 ```
 
-Committed example outputs live in `examples/` (fastapi + jpetstore). `output/`
-is gitignored.
+Committed example outputs live in `examples/` (fastapi + jpetstore +
+spring-petclinic). `output/` is gitignored.
 
 ## Tests / fixtures
 
 Test-first where practical. Coverage: per-parser unit tests (incl. maven,
-webxml, spring-xml), two golden integration suites (compose + Maven WAR),
-category generalization tests (implicit Dockerfile, published-port fallback,
-Maven-without-compose), byte-determinism, "target repo not modified", and
-missing-file / bad-profile / malformed-input / unsupported-construct.
-**No test touches the network.** Golden fixtures are pinned local copies of the
-P0-relevant files: `tests/fixtures/full-stack-fastapi/` @
-`4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`; `tests/fixtures/jpetstore-6/`
-(`mybatis/jpetstore-6`) @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d` (mvnw
-files are placeholders — presence only). When fixing a bug, add a failing test
+webxml, spring-xml, gradle, spring-properties, sql-init), three golden
+integration suites (compose + Maven WAR + Spring Boot/Gradle), a k8s-manifest
+ground-truth comparison for spring-petclinic, category generalization tests
+(implicit Dockerfile, published-port fallback, Maven-without-compose,
+build-system selection, Spring Boot facts on a synthetic repo), byte-determinism,
+"target repo not modified", and missing-file / bad-profile / malformed-input /
+unsupported-construct. **No test touches the network.** Golden fixtures are
+pinned local copies of the P0-relevant files: `tests/fixtures/full-stack-fastapi/`
+@ `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`; `tests/fixtures/jpetstore-6/`
+(`mybatis/jpetstore-6`) @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d`;
+`tests/fixtures/spring-petclinic/` (`spring-projects/spring-petclinic`) @
+`f182358d02e4a68e52bdbabf55ca7800288511e7` (both build.gradle + pom.xml; gradlew/
+mvnw are placeholders — presence only; `k8s/` manifests are ground-truth
+reference, never read by the analyzer). When fixing a bug, add a failing test
 first.
 
 ## Directory index

@@ -182,6 +182,43 @@
   ],
   "configuration": [
     {
+      "subject": "build.system",
+      "value": "maven",
+      "confidence": "explicit",
+      "kubernetes_effect": "determines the build/CI pipeline and the image-build strategy; detected build systems: maven",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "project",
+          "symbol": "pom.xml",
+          "start_line": 33,
+          "end_line": 33
+        }
+      ]
+    },
+    {
+      "subject": "build.system.selection",
+      "value": {
+        "detected": [
+          "maven"
+        ],
+        "selected": "maven",
+        "rationale": "only build system detected in the repository",
+        "how_to_select_other": "n/a (single build system)"
+      },
+      "confidence": "explicit",
+      "kubernetes_effect": "records why this build system was chosen and how to analyze the other(s)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "project",
+          "symbol": "pom.xml",
+          "start_line": 33,
+          "end_line": 33
+        }
+      ]
+    },
+    {
       "subject": "runtime.language",
       "value": "Java 17",
       "confidence": "explicit",

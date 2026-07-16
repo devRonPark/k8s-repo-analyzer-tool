@@ -57,6 +57,8 @@ _None detected._
 
 | Subject | Value | Kubernetes effect | Evidence |
 | --- | --- | --- | --- |
+| build.system | maven | determines the build/CI pipeline and the image-build strategy; detected build systems: maven | `pom.xml:33-33` (project) |
+| build.system.selection | {'detected': ['maven'], 'selected': 'maven', 'rationale': 'only build system detected in the repository', 'how_to_select_other': 'n/a (single build system)'} | records why this build system was chosen and how to analyze the other(s) | `pom.xml:33-33` (project) |
 | runtime.language | Java 17 | informs the container base image (JRE/JDK major version) | `pom.xml:62-62` (properties.java.version) |
 | framework.mybatis | 3.5.19 | application framework (no direct K8s object; informs runtime behaviour) | `pom.xml:97-101` (dependency[mybatis]) |
 | framework.mybatis-spring | 3.0.6 | application framework (no direct K8s object; informs runtime behaviour) | `pom.xml:102-106` (dependency[mybatis-spring]) |

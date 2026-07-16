@@ -21,7 +21,7 @@ whether the frontend API URL is build-time or runtime, Kubernetes workload
 drafts, and — importantly — the operational inputs that **cannot** be decided
 from the repository.
 
-Two stack families are covered today:
+Three stack families are covered today:
 
 - **Container/compose stacks** (e.g. FastAPI + Postgres + Nginx): compose
   services, Dockerfiles, dotenv, Nginx, Python settings.
@@ -34,6 +34,22 @@ Two stack families are covered today:
   (ephemeral) datastores, image-build risks (runtime server download, PID-1
   signal handling, root user), and Dockerfile↔README↔POM cross-checks
   (undefined run profile, JDK version mismatch).
+- **Spring Boot / Gradle applications** (e.g. spring-petclinic): `build.gradle`
+  (applied plugins with versions, Java toolchain, dependencies with
+  configuration), `settings.gradle` (project name → artifact name),
+  `gradle-wrapper.properties` (pinned Gradle version), and
+  `application*.properties` (default vs per-profile datasources, SQL init,
+  Actuator). This surfaces the **selected build system** (when both Maven and
+  Gradle are present it lists both, records the choice, and how to switch — never
+  "the first `pom.xml`"), the **executable Spring Boot JAR** (`bootJar` vs a plain
+  `jar`, `build/libs/*.jar`, `java -jar`), the default **8080** port, the
+  **H2 (default) vs external PostgreSQL/MySQL** profiles with their env vars
+  classified into **ConfigMap (URL) vs Secret (user/password)** candidates,
+  **`spring.sql.init`** startup initialization (idempotent, not Flyway/Liquibase),
+  **Actuator** liveness/readiness probe candidates (with `/livez`,`/readyz` only
+  when `add-additional-paths` is enabled), **`bootBuildImage`** OCI-image build
+  without a Dockerfile, and that the **application needs no PVC** (state lives in
+  the database).
 
 Every finding is labeled:
 
@@ -70,6 +86,9 @@ uv run repo-analyzer analyze \
 
 - `--repo` (required): path to the repository (read-only; never modified).
 - `--profile`: defaults to `kubernetes-p0` (the only supported profile).
+- `--build-system`: `auto` (default) | `gradle` | `maven`. When a repo ships more
+  than one build system, this forces which one is analyzed; `auto` selects
+  deterministically and records the choice (and how to switch) in the result.
 - `--git-ref`: optional commit/ref recorded in metadata for traceability.
 - With no `--json-output`/`--markdown-output`, the JSON is written to stdout.
 
@@ -87,6 +106,13 @@ uv run repo-analyzer analyze \
   --repo tests/fixtures/jpetstore-6 \
   --json-output ./output/jpetstore.json \
   --markdown-output ./output/jpetstore.md
+
+# Spring Boot + Gradle (spring-petclinic; both build systems present, analyze Gradle)
+uv run repo-analyzer analyze \
+  --repo tests/fixtures/spring-petclinic \
+  --build-system gradle \
+  --json-output ./output/spring-petclinic.json \
+  --markdown-output ./output/spring-petclinic.md
 ```
 
 Committed example outputs live in [`examples/`](./examples/).
@@ -171,12 +197,16 @@ uv run pytest
 ```
 
 Coverage includes: a unit test suite per parser (compose, dockerfile, dotenv,
-nginx, python-settings, maven, webxml, spring-xml), two rule/golden-fixture
-integration suites (compose stack and Maven WAR), category-level generalization
-tests (implicit Dockerfile resolution, published-port fallback, Maven-without-
-compose), byte-level determinism tests, "target repo is never modified" tests,
-and missing-file / bad-profile / malformed-input / unsupported-construct tests.
-All fixtures are local; **no test touches the network**.
+nginx, python-settings, maven, webxml, spring-xml, **gradle, spring-properties,
+sql-init**), three rule/golden-fixture integration suites (compose stack, Maven
+WAR, **Spring Boot + Gradle**), category-level generalization tests (implicit
+Dockerfile resolution, published-port fallback, Maven-without-compose,
+**build-system selection, Spring Boot facts on a synthetic non-fixture repo**),
+a **k8s-manifest ground-truth comparison** (the analyzer's source-only output vs
+spring-petclinic's own `k8s/` manifests), byte-level determinism tests, "target
+repo is never modified" tests, and missing-file / bad-profile / malformed-input /
+unsupported-construct tests. All fixtures are local; **no test touches the
+network**.
 
 Golden fixtures are pinned local copies of the P0-relevant files:
 
@@ -187,6 +217,12 @@ Golden fixtures are pinned local copies of the P0-relevant files:
   [`mybatis/jpetstore-6`](https://github.com/mybatis/jpetstore-6)
   @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d` (`mvnw`/`mvnw.cmd` are minimal
   placeholders — only their presence drives build-tool detection).
+- `tests/fixtures/spring-petclinic/` from
+  [`spring-projects/spring-petclinic`](https://github.com/spring-projects/spring-petclinic)
+  @ `f182358d02e4a68e52bdbabf55ca7800288511e7` (Spring Boot 4.x; ships **both**
+  `build.gradle` and `pom.xml`; `gradlew`/`mvnw` are presence-only placeholders;
+  includes the upstream `k8s/` manifests as ground-truth reference only — the
+  analyzer never reads them).
 
 ## Project structure
 

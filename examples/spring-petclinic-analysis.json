@@ -1,0 +1,1332 @@
+{
+  "schema_version": "1.0",
+  "repository": {
+    "name": "spring-petclinic",
+    "profile": "kubernetes-p0",
+    "git_ref": "f182358d02e4a68e52bdbabf55ca7800288511e7",
+    "file_count": 19
+  },
+  "detected_files": [
+    {
+      "path": "README.md",
+      "kind": "readme"
+    },
+    {
+      "path": "build.gradle",
+      "kind": "gradle-build"
+    },
+    {
+      "path": "docker-compose.yml",
+      "kind": "compose"
+    },
+    {
+      "path": "gradle/wrapper/gradle-wrapper.properties",
+      "kind": "gradle-wrapper"
+    },
+    {
+      "path": "gradlew",
+      "kind": "build-wrapper"
+    },
+    {
+      "path": "gradlew.bat",
+      "kind": "build-wrapper"
+    },
+    {
+      "path": "mvnw",
+      "kind": "build-wrapper"
+    },
+    {
+      "path": "mvnw.cmd",
+      "kind": "build-wrapper"
+    },
+    {
+      "path": "pom.xml",
+      "kind": "maven-pom"
+    },
+    {
+      "path": "settings.gradle",
+      "kind": "gradle-settings"
+    },
+    {
+      "path": "src/main/resources/application-mysql.properties",
+      "kind": "spring-properties"
+    },
+    {
+      "path": "src/main/resources/application-postgres.properties",
+      "kind": "spring-properties"
+    },
+    {
+      "path": "src/main/resources/application.properties",
+      "kind": "spring-properties"
+    },
+    {
+      "path": "src/main/resources/db/h2/data.sql",
+      "kind": "sql-init"
+    },
+    {
+      "path": "src/main/resources/db/h2/schema.sql",
+      "kind": "sql-init"
+    },
+    {
+      "path": "src/main/resources/db/mysql/data.sql",
+      "kind": "sql-init"
+    },
+    {
+      "path": "src/main/resources/db/mysql/schema.sql",
+      "kind": "sql-init"
+    },
+    {
+      "path": "src/main/resources/db/postgres/data.sql",
+      "kind": "sql-init"
+    },
+    {
+      "path": "src/main/resources/db/postgres/schema.sql",
+      "kind": "sql-init"
+    }
+  ],
+  "components": [
+    {
+      "name": "mysql",
+      "source_files": [
+        "docker-compose.yml"
+      ],
+      "image": "mysql:9.7",
+      "build_context": null,
+      "dockerfile": null,
+      "build_args": [],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
+      "runtime": "MySQL",
+      "command": null,
+      "workers": null,
+      "container_ports": [
+        3306
+      ],
+      "context_path": null,
+      "published_ports": [
+        "3306:3306"
+      ],
+      "environment": [
+        "MYSQL_ROOT_PASSWORD",
+        "MYSQL_ALLOW_EMPTY_PASSWORD",
+        "MYSQL_USER",
+        "MYSQL_PASSWORD",
+        "MYSQL_DATABASE"
+      ],
+      "secret_candidates": [
+        "MYSQL_ROOT_PASSWORD",
+        "MYSQL_ALLOW_EMPTY_PASSWORD",
+        "MYSQL_PASSWORD"
+      ],
+      "runtime_dependencies": [],
+      "volumes": [
+        "./conf.d -> /etc/mysql/conf.d"
+      ],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "StatefulSet + headless Service (or external managed database)",
+      "unresolved": []
+    },
+    {
+      "name": "postgres",
+      "source_files": [
+        "docker-compose.yml"
+      ],
+      "image": "postgres:18.4",
+      "build_context": null,
+      "dockerfile": null,
+      "build_args": [],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
+      "runtime": "PostgreSQL",
+      "command": null,
+      "workers": null,
+      "container_ports": [
+        5432
+      ],
+      "context_path": null,
+      "published_ports": [
+        "5432:5432"
+      ],
+      "environment": [
+        "POSTGRES_PASSWORD",
+        "POSTGRES_USER",
+        "POSTGRES_DB"
+      ],
+      "secret_candidates": [
+        "POSTGRES_PASSWORD"
+      ],
+      "runtime_dependencies": [],
+      "volumes": [],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "StatefulSet + headless Service (or external managed database)",
+      "unresolved": []
+    },
+    {
+      "name": "spring-petclinic",
+      "source_files": [
+        "README.md",
+        "build.gradle",
+        "gradle/wrapper/gradle-wrapper.properties",
+        "settings.gradle",
+        "src/main/resources/application-mysql.properties",
+        "src/main/resources/application-postgres.properties",
+        "src/main/resources/application.properties",
+        "src/main/resources/db/h2/data.sql",
+        "src/main/resources/db/h2/schema.sql",
+        "src/main/resources/db/mysql/data.sql",
+        "src/main/resources/db/mysql/schema.sql",
+        "src/main/resources/db/postgres/data.sql",
+        "src/main/resources/db/postgres/schema.sql"
+      ],
+      "image": null,
+      "build_context": null,
+      "dockerfile": null,
+      "build_args": [],
+      "language": "Java 17",
+      "frameworks": [
+        "Spring Boot 4.1.0",
+        "Spring Cache",
+        "Spring Data JPA",
+        "Thymeleaf",
+        "Spring MVC (embedded servlet container)",
+        "Bean Validation"
+      ],
+      "build_tool": "Gradle 9.5.1 (gradlew wrapper)",
+      "build_command": "./gradlew clean bootJar",
+      "build_artifact": "build/libs/spring-petclinic-4.0.0-SNAPSHOT.jar",
+      "packaging": "jar (Spring Boot executable)",
+      "application_server": null,
+      "runtime": "Spring Boot 4.1.0 application on an embedded servlet container (Tomcat); self-contained executable JAR",
+      "command": null,
+      "workers": null,
+      "container_ports": [
+        8080
+      ],
+      "context_path": null,
+      "published_ports": [],
+      "environment": [
+        "MYSQL_PASS",
+        "MYSQL_URL",
+        "MYSQL_USER",
+        "POSTGRES_PASS",
+        "POSTGRES_URL",
+        "POSTGRES_USER",
+        "SPRING_PROFILES_ACTIVE"
+      ],
+      "secret_candidates": [
+        "MYSQL_PASS",
+        "MYSQL_USER",
+        "POSTGRES_PASS",
+        "POSTGRES_USER"
+      ],
+      "runtime_dependencies": [
+        "Embedded H2 (default profile, in-memory)",
+        "External MySQL (mysql profile)",
+        "External PostgreSQL (postgres profile)"
+      ],
+      "volumes": [],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "Deployment + ClusterIP Service",
+      "unresolved": []
+    }
+  ],
+  "workload_mappings": [
+    {
+      "component": "mysql",
+      "kubernetes_kind": "StatefulSet + headless Service (or external managed database)",
+      "confidence": "derived",
+      "rationale": "Stateful component with persistent data; not a stateless Deployment.",
+      "evidence": [
+        {
+          "path": "docker-compose.yml",
+          "selector": "$.services.mysql",
+          "symbol": "service",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory",
+        "PVC size",
+        "StorageClass",
+        "DB HA & backup policy"
+      ]
+    },
+    {
+      "component": "postgres",
+      "kubernetes_kind": "StatefulSet + headless Service (or external managed database)",
+      "confidence": "derived",
+      "rationale": "Stateful component with persistent data; not a stateless Deployment.",
+      "evidence": [
+        {
+          "path": "docker-compose.yml",
+          "selector": "$.services.postgres",
+          "symbol": "service",
+          "start_line": 15,
+          "end_line": 15
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory",
+        "PVC size",
+        "StorageClass",
+        "DB HA & backup policy"
+      ]
+    },
+    {
+      "component": "spring-petclinic",
+      "kubernetes_kind": "Deployment + ClusterIP Service",
+      "confidence": "derived",
+      "rationale": "Stateless Spring Boot application on an embedded server; horizontally scalable behind a ClusterIP Service (targetPort 8080). No application PVC. Needs a ConfigMap (profile, DB URL) and a Secret (DB credentials) when using an external database, plus liveness/readiness probes.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugins",
+          "symbol": "spring-boot",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory requests/limits",
+        "external database selection (postgres vs mysql) for production",
+        "startupProbe thresholds",
+        "container image name/registry"
+      ]
+    }
+  ],
+  "networking": [
+    {
+      "subject": "mysql.container_port",
+      "value": 3306,
+      "confidence": "derived",
+      "kubernetes_effect": "mysql Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "docker-compose.yml",
+          "selector": "$.services.mysql.image",
+          "symbol": "image.default_port",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "postgres.container_port",
+      "value": 5432,
+      "confidence": "derived",
+      "kubernetes_effect": "postgres Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "docker-compose.yml",
+          "selector": "$.services.postgres.image",
+          "symbol": "image.default_port",
+          "start_line": 15,
+          "end_line": 15
+        }
+      ]
+    },
+    {
+      "subject": "app.default_port",
+      "value": 8080,
+      "confidence": "derived",
+      "kubernetes_effect": "no server.port is set, so Spring Boot's embedded server listens on 8080. Service targetPort=8080, containerPort=8080.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-webmvc]",
+          "symbol": "dependency",
+          "start_line": 37,
+          "end_line": 37
+        },
+        {
+          "path": "README.md",
+          "selector": "README",
+          "symbol": "run-instructions",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    },
+    {
+      "subject": "service.target_port",
+      "value": 8080,
+      "confidence": "derived",
+      "kubernetes_effect": "Service targetPort = 8080 (the Service `port` itself is an operational choice)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-webmvc]",
+          "symbol": "dependency",
+          "start_line": 37,
+          "end_line": 37
+        },
+        {
+          "path": "README.md",
+          "selector": "README",
+          "symbol": "run-instructions",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    }
+  ],
+  "configuration": [
+    {
+      "subject": "build.system",
+      "value": "gradle",
+      "confidence": "derived",
+      "kubernetes_effect": "determines the build/CI pipeline and the image-build strategy; detected build systems: gradle, maven",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugins.spring-boot",
+          "symbol": "build.gradle",
+          "start_line": 4,
+          "end_line": 4
+        },
+        {
+          "path": "pom.xml",
+          "selector": "project",
+          "symbol": "pom.xml",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "build.system.selection",
+      "value": {
+        "detected": [
+          "gradle",
+          "maven"
+        ],
+        "selected": "gradle",
+        "rationale": "explicitly requested via --build-system gradle",
+        "how_to_select_other": "--build-system maven to analyze the maven build instead"
+      },
+      "confidence": "explicit",
+      "kubernetes_effect": "records why this build system was chosen and how to analyze the other(s)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugins.spring-boot",
+          "symbol": "build.gradle",
+          "start_line": 4,
+          "end_line": 4
+        },
+        {
+          "path": "pom.xml",
+          "selector": "project",
+          "symbol": "pom.xml",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "runtime.java_version",
+      "value": "Java 17",
+      "confidence": "explicit",
+      "kubernetes_effect": "informs the container base image / buildpack JRE major version",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "java.toolchain.languageVersion",
+          "symbol": "toolchain",
+          "start_line": 19,
+          "end_line": 19
+        }
+      ]
+    },
+    {
+      "subject": "framework.spring_boot",
+      "value": "4.1.0",
+      "confidence": "explicit",
+      "kubernetes_effect": "Spring Boot app: self-contained executable JAR with an embedded server",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "framework.spring_cache",
+      "value": "Spring Cache",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (informs runtime behaviour; no direct K8s object)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-cache]",
+          "symbol": "dependency",
+          "start_line": 34,
+          "end_line": 34
+        }
+      ]
+    },
+    {
+      "subject": "framework.spring_data_jpa",
+      "value": "Spring Data JPA",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (informs runtime behaviour; no direct K8s object)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-data-jpa]",
+          "symbol": "dependency",
+          "start_line": 35,
+          "end_line": 35
+        }
+      ]
+    },
+    {
+      "subject": "framework.thymeleaf",
+      "value": "Thymeleaf",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (informs runtime behaviour; no direct K8s object)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-thymeleaf]",
+          "symbol": "dependency",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    },
+    {
+      "subject": "framework.spring_mvc",
+      "value": "Spring MVC (embedded servlet container)",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (informs runtime behaviour; no direct K8s object)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-webmvc]",
+          "symbol": "dependency",
+          "start_line": 37,
+          "end_line": 37
+        }
+      ]
+    },
+    {
+      "subject": "framework.bean_validation",
+      "value": "Bean Validation",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (informs runtime behaviour; no direct K8s object)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-validation]",
+          "symbol": "dependency",
+          "start_line": 38,
+          "end_line": 38
+        }
+      ]
+    },
+    {
+      "subject": "build.tool",
+      "value": "Gradle 9.5.1 (gradlew wrapper)",
+      "confidence": "explicit",
+      "kubernetes_effect": "build system that produces the deployable artifact (CI / image build)",
+      "evidence": [
+        {
+          "path": "gradlew",
+          "selector": "gradlew",
+          "symbol": "wrapper-script",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "gradle/wrapper/gradle-wrapper.properties",
+          "selector": "distributionUrl",
+          "symbol": "distributionUrl",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "build.wrapper",
+      "value": "./gradlew",
+      "confidence": "explicit",
+      "kubernetes_effect": "pinned Gradle wrapper makes the build reproducible in CI/image without a preinstalled Gradle",
+      "evidence": [
+        {
+          "path": "gradlew",
+          "selector": "gradlew",
+          "symbol": "wrapper-script",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "gradle/wrapper/gradle-wrapper.properties",
+          "selector": "distributionUrl",
+          "symbol": "distributionUrl",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "build.command.bootjar",
+      "value": "./gradlew clean bootJar",
+      "confidence": "derived",
+      "kubernetes_effect": "produces the executable Spring Boot JAR for the image",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "build.command.bootrun",
+      "value": "./gradlew bootRun",
+      "confidence": "derived",
+      "kubernetes_effect": "developer run (not used in the container image)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "build.command.test",
+      "value": "./gradlew test",
+      "confidence": "derived",
+      "kubernetes_effect": "unit/integration tests (CI gate)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "build.artifact_type",
+      "value": "executable-jar",
+      "confidence": "derived",
+      "kubernetes_effect": "the Spring Boot plugin's bootJar produces a self-contained, runnable fat JAR (java -jar). This differs from the plain `jar` task, which produces a thin library JAR that is NOT directly runnable.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "build.artifact",
+      "value": "build/libs/spring-petclinic-4.0.0-SNAPSHOT.jar",
+      "confidence": "derived",
+      "kubernetes_effect": "the runnable JAR to copy into the image / run with `java -jar`",
+      "evidence": [
+        {
+          "path": "settings.gradle",
+          "selector": "rootProject.name",
+          "symbol": "rootProject.name",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "runtime.exec_command",
+      "value": "java -jar build/libs/spring-petclinic-4.0.0-SNAPSHOT.jar",
+      "confidence": "derived",
+      "kubernetes_effect": "container command for the Deployment (exec form; JVM is PID 1 for clean SIGTERM)",
+      "evidence": [
+        {
+          "path": "settings.gradle",
+          "selector": "rootProject.name",
+          "symbol": "rootProject.name",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "config.SPRING_PROFILES_ACTIVE",
+      "value": "(unset → default/h2)",
+      "confidence": "derived",
+      "kubernetes_effect": "ConfigMap/env key. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch to an external database; unset means the embedded H2 default.",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "config.MYSQL_URL",
+      "value": "spring.datasource.url (mysql profile)",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate (non-secret connection detail)",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "profile.mysql.required_env",
+      "value": [
+        "MYSQL_URL",
+        "MYSQL_USER",
+        "MYSQL_PASS"
+      ],
+      "confidence": "derived",
+      "kubernetes_effect": "environment variables the 'mysql' profile needs (URL→ConfigMap, USER/PASS→Secret), sourced from datasource property placeholders",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.username",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        },
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.password",
+          "symbol": "property",
+          "start_line": 5,
+          "end_line": 5
+        }
+      ]
+    },
+    {
+      "subject": "config.POSTGRES_URL",
+      "value": "spring.datasource.url (postgres profile)",
+      "confidence": "explicit",
+      "kubernetes_effect": "ConfigMap key candidate (non-secret connection detail)",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "profile.postgres.required_env",
+      "value": [
+        "POSTGRES_URL",
+        "POSTGRES_USER",
+        "POSTGRES_PASS"
+      ],
+      "confidence": "derived",
+      "kubernetes_effect": "environment variables the 'postgres' profile needs (URL→ConfigMap, USER/PASS→Secret), sourced from datasource property placeholders",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.username",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        },
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.password",
+          "symbol": "property",
+          "start_line": 5,
+          "end_line": 5
+        }
+      ]
+    }
+  ],
+  "secrets": [
+    {
+      "subject": "secret.MYSQL_USER",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate (spring.datasource.username, mysql profile)",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.username",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "secret.MYSQL_PASS",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate (spring.datasource.password, mysql profile)",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.password",
+          "symbol": "property",
+          "start_line": 5,
+          "end_line": 5
+        }
+      ]
+    },
+    {
+      "subject": "secret.POSTGRES_USER",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate (spring.datasource.username, postgres profile)",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.username",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "secret.POSTGRES_PASS",
+      "value": "<redacted>",
+      "confidence": "explicit",
+      "kubernetes_effect": "Kubernetes Secret key candidate (spring.datasource.password, postgres profile)",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.password",
+          "symbol": "property",
+          "start_line": 5,
+          "end_line": 5
+        }
+      ]
+    }
+  ],
+  "storage": [
+    {
+      "subject": "storage.application_pvc",
+      "value": "not required",
+      "confidence": "derived",
+      "kubernetes_effect": "the application is stateless: it writes no local persistent files and keeps all state in the database. The Deployment needs no PVC/volumeMount. Database persistence is a SEPARATE concern handled by the (external/managed) DB, not the app.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependencies",
+          "symbol": "no volume/persistent-file config",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    }
+  ],
+  "runtime_dependencies": [
+    {
+      "subject": "database.default",
+      "value": "h2 (embedded, in-memory)",
+      "confidence": "explicit",
+      "kubernetes_effect": "default profile uses an in-process, in-memory database. Data is ephemeral and per-replica; suitable for dev/demo only. Do NOT run this in production — choose an external database (postgres/mysql profile).",
+      "evidence": [
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "database",
+          "symbol": "property",
+          "start_line": 2,
+          "end_line": 2
+        }
+      ]
+    },
+    {
+      "subject": "database.profile.mysql",
+      "value": "External MySQL",
+      "confidence": "explicit",
+      "kubernetes_effect": "'mysql' profile connects to an external MySQL. Provide the JDBC URL via ConfigMap and credentials via Secret; ensure network reachability from the cluster.",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    },
+    {
+      "subject": "database.profile.postgres",
+      "value": "External PostgreSQL",
+      "confidence": "explicit",
+      "kubernetes_effect": "'postgres' profile connects to an external PostgreSQL. Provide the JDBC URL via ConfigMap and credentials via Secret; ensure network reachability from the cluster.",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        }
+      ]
+    }
+  ],
+  "startup_order": [
+    {
+      "subject": "startup.order",
+      "value": [
+        "database becomes ready"
+      ],
+      "confidence": "derived",
+      "kubernetes_effect": "overall ordering: DB -> migration Job -> seed -> application Deployments",
+      "evidence": []
+    },
+    {
+      "subject": "startup.sql_init",
+      "value": "spring.sql.init.schema-locations=classpath*:db/${database}/schema.sql; spring.sql.init.data-locations=classpath*:db/${database}/data.sql",
+      "confidence": "explicit",
+      "kubernetes_effect": "Spring SQL init runs schema/data scripts in-process at application startup (basic script init), NOT a separate migration Job.",
+      "evidence": [
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "spring.sql.init.schema-locations",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "spring.sql.init.data-locations",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "startup.migration_tool",
+      "value": "spring.sql.init (no Flyway/Liquibase)",
+      "confidence": "derived",
+      "kubernetes_effect": "no versioned migration tool (Flyway/Liquibase) is on the classpath, so there is no dedicated migration Job/initContainer; schema/data are applied in-process at startup.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependencies",
+          "symbol": "no flyway/liquibase",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "startup.sql_init.mode.mysql",
+      "value": "always",
+      "confidence": "explicit",
+      "kubernetes_effect": "'mysql' profile forces SQL init to run even against the external DB (mode=always); it re-runs on every pod start.",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.sql.init.mode",
+          "symbol": "property",
+          "start_line": 7,
+          "end_line": 7
+        }
+      ]
+    },
+    {
+      "subject": "startup.sql_init.mode.postgres",
+      "value": "always",
+      "confidence": "explicit",
+      "kubernetes_effect": "'postgres' profile forces SQL init to run even against the external DB (mode=always); it re-runs on every pod start.",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.sql.init.mode",
+          "symbol": "property",
+          "start_line": 7,
+          "end_line": 7
+        }
+      ]
+    },
+    {
+      "subject": "startup.sql_init.idempotent",
+      "value": "3 schema script(s) use IF (NOT) EXISTS guards",
+      "confidence": "derived",
+      "kubernetes_effect": "schema DDL is guarded (CREATE TABLE IF NOT EXISTS / DROP TABLE IF EXISTS), so startup SQL init re-runs safely on each pod start; no one-shot migration Job is required.",
+      "evidence": [
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "schema.sql",
+          "symbol": "idempotent-guard",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "schema.sql",
+          "symbol": "idempotent-guard",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "schema.sql",
+          "symbol": "idempotent-guard",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    }
+  ],
+  "health_checks": [
+    {
+      "subject": "health.actuator",
+      "value": "spring-boot-starter-actuator present",
+      "confidence": "explicit",
+      "kubernetes_effect": "exposes /actuator/health and the Kubernetes liveness/readiness health groups",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-actuator]",
+          "symbol": "dependency",
+          "start_line": 41,
+          "end_line": 41
+        }
+      ]
+    },
+    {
+      "subject": "health.exposure",
+      "value": "*",
+      "confidence": "explicit",
+      "kubernetes_effect": "controls which /actuator/* endpoints are reachable over HTTP",
+      "evidence": [
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "management.endpoints.web.exposure.include",
+          "symbol": "property",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "health.liveness_probe",
+      "value": "/actuator/health/liveness",
+      "confidence": "derived",
+      "kubernetes_effect": "livenessProbe httpGet path candidate on port 8080. Spring Boot auto-enables the liveness health group when running under Kubernetes.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-actuator]",
+          "symbol": "dependency",
+          "start_line": 41,
+          "end_line": 41
+        },
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "management.endpoints.web.exposure.include",
+          "symbol": "property",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "health.readiness_probe",
+      "value": "/actuator/health/readiness",
+      "confidence": "derived",
+      "kubernetes_effect": "readinessProbe httpGet path candidate on port 8080. Spring Boot auto-enables the readiness health group when running under Kubernetes.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-actuator]",
+          "symbol": "dependency",
+          "start_line": 41,
+          "end_line": 41
+        },
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "management.endpoints.web.exposure.include",
+          "symbol": "property",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "health.overall",
+      "value": "/actuator/health",
+      "confidence": "derived",
+      "kubernetes_effect": "overall health endpoint (aggregate) on port 8080",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-actuator]",
+          "symbol": "dependency",
+          "start_line": 41,
+          "end_line": 41
+        },
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "management.endpoints.web.exposure.include",
+          "symbol": "property",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "health.additional_paths",
+      "value": "/livez, /readyz require management.endpoint.health.probes.add-additional-paths=true (NOT set in repo)",
+      "confidence": "unresolved",
+      "kubernetes_effect": "use /actuator/health/liveness and /actuator/health/readiness by default. Only probe /livez and /readyz if you enable add-additional-paths=true (e.g. via env/ConfigMap).",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-actuator]",
+          "symbol": "dependency",
+          "start_line": 41,
+          "end_line": 41
+        },
+        {
+          "path": "src/main/resources/application.properties",
+          "selector": "management.endpoints.web.exposure.include",
+          "symbol": "property",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    }
+  ],
+  "build_time_constraints": [],
+  "container_image": [
+    {
+      "subject": "image.dockerfile",
+      "value": "none (no application Dockerfile)",
+      "confidence": "explicit",
+      "kubernetes_effect": "no Dockerfile — but this does NOT mean the app cannot be containerised (see bootBuildImage)",
+      "evidence": []
+    },
+    {
+      "subject": "image.buildpack_support",
+      "value": true,
+      "confidence": "derived",
+      "kubernetes_effect": "the Spring Boot Gradle plugin provides `bootBuildImage`, which builds an OCI image with Cloud Native Buildpacks — no Dockerfile needed.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "image.build_command",
+      "value": "./gradlew bootBuildImage",
+      "confidence": "derived",
+      "kubernetes_effect": "builds the container image via buildpacks (requires a Docker daemon or rootless builder)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "image.build_strategy",
+      "value": "buildpack (bootBuildImage) vs Dockerfile",
+      "confidence": "derived",
+      "kubernetes_effect": "buildpacks auto-detect the JDK/JRE and layer the app for you (reproducible, maintained base images); a Dockerfile gives full control but you own the base image and CVE patching.",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    },
+    {
+      "subject": "image.runs_as_nonroot",
+      "value": "buildpack image runs as non-root by default",
+      "confidence": "derived",
+      "kubernetes_effect": "Paketo/Spring buildpack images run as the non-root `cnb` user, so securityContext.runAsNonRoot is satisfied when built via bootBuildImage (still set it explicitly).",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "plugin",
+          "symbol": "plugin",
+          "start_line": 4,
+          "end_line": 4
+        }
+      ]
+    }
+  ],
+  "unresolved_operational_inputs": [
+    {
+      "subject": "production_database_selection",
+      "reason": "the repo supports an embedded H2 default plus external mysql, postgres profiles; which one to run in production is not decided by the repository",
+      "needed_input": "choose a profile (e.g. postgres or mysql) and supply the JDBC URL + credentials",
+      "kubernetes_effect": "SPRING_PROFILES_ACTIVE (ConfigMap) + datasource ConfigMap/Secret; external DB Service",
+      "no_default_used": true
+    },
+    {
+      "subject": "container_image_name",
+      "reason": "bootBuildImage's image name/registry is not pinned in the repo",
+      "needed_input": "target image coordinates, e.g. registry/namespace/spring-petclinic:<tag>",
+      "kubernetes_effect": "Deployment.spec.template.spec.containers[].image",
+      "no_default_used": true
+    },
+    {
+      "subject": "health_probe_additional_paths",
+      "reason": "the repo does not enable management.endpoint.health.probes.add-additional-paths",
+      "needed_input": "decide whether to expose /livez,/readyz or use /actuator/health/{liveness,readiness}",
+      "kubernetes_effect": "livenessProbe/readinessProbe httpGet.path",
+      "no_default_used": true
+    },
+    {
+      "subject": "startup_probe",
+      "reason": "JVM/Spring Boot cold-start time is environment-dependent and not stated in the repo",
+      "needed_input": "expected startup duration to size startupProbe failureThreshold/periodSeconds",
+      "kubernetes_effect": "container.startupProbe (protects a slow-starting JVM from liveness restarts)",
+      "no_default_used": true
+    },
+    {
+      "subject": "graceful_shutdown",
+      "reason": "server.shutdown=graceful is not set in the repo (Spring Boot defaults to immediate shutdown)",
+      "needed_input": "whether to enable graceful shutdown and the drain timeout",
+      "kubernetes_effect": "server.shutdown + spring.lifecycle.timeout-per-shutdown-phase; terminationGracePeriodSeconds",
+      "no_default_used": true
+    },
+    {
+      "subject": "security_context_run_as_non_root",
+      "reason": "runAsNonRoot/UID is a deployment policy; buildpack images default to non-root but it is not pinned",
+      "needed_input": "target UID/GID and runAsNonRoot policy",
+      "kubernetes_effect": "Pod/container securityContext",
+      "no_default_used": true
+    },
+    {
+      "subject": "replica_count",
+      "reason": "desired availability/throughput is an operational decision, not in the repo",
+      "needed_input": "target replicas per Deployment (SLO / load expectations)",
+      "kubernetes_effect": "Deployment.spec.replicas",
+      "no_default_used": true
+    },
+    {
+      "subject": "resource_requests_limits",
+      "reason": "repo contains no CPU/memory sizing information",
+      "needed_input": "measured or estimated CPU/memory per component",
+      "kubernetes_effect": "container resources.requests / resources.limits",
+      "no_default_used": true
+    },
+    {
+      "subject": "ingress_class",
+      "reason": "cluster ingress controller is environment-specific and not declared in the repo",
+      "needed_input": "target IngressClass in the destination cluster",
+      "kubernetes_effect": "Ingress.spec.ingressClassName",
+      "no_default_used": true
+    },
+    {
+      "subject": "horizontal_pod_autoscaler",
+      "reason": "no scaling policy is expressed in the repo",
+      "needed_input": "scaling metric and min/max replicas",
+      "kubernetes_effect": "HorizontalPodAutoscaler",
+      "no_default_used": true
+    },
+    {
+      "subject": "pod_disruption_budget",
+      "reason": "availability tolerance during disruptions is an operational decision",
+      "needed_input": "minAvailable/maxUnavailable policy",
+      "kubernetes_effect": "PodDisruptionBudget",
+      "no_default_used": true
+    },
+    {
+      "subject": "pvc_size",
+      "reason": "database volume size is not declared in the repo",
+      "needed_input": "expected data volume / growth for the database PVC",
+      "kubernetes_effect": "PersistentVolumeClaim.spec.resources.requests.storage",
+      "no_default_used": true
+    },
+    {
+      "subject": "storage_class",
+      "reason": "storage backend is cluster-specific",
+      "needed_input": "target StorageClass in the destination cluster",
+      "kubernetes_effect": "PersistentVolumeClaim.spec.storageClassName",
+      "no_default_used": true
+    },
+    {
+      "subject": "database_ha_and_backup",
+      "reason": "repo runs a single-container DB; HA and backup are operational policy",
+      "needed_input": "managed DB vs in-cluster HA, and backup/restore policy",
+      "kubernetes_effect": "operator/StatefulSet topology, backup CronJobs",
+      "no_default_used": true
+    }
+  ],
+  "warnings": [
+    {
+      "code": "multiple_build_systems",
+      "message": "multiple build systems detected (gradle, maven); analysis uses 'gradle'. Override with --build-system {gradle,maven}.",
+      "path": null
+    }
+  ],
+  "unsupported_constructs": []
+}
