@@ -104,11 +104,100 @@ files from `fastapi/full-stack-fastapi-template` @
 `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`. When fixing a bug, add a failing test
 first.
 
+## Directory index
+
+Each directory has its own `CLAUDE.md` with a file-level index. Read the
+relevant directory's `CLAUDE.md` instead of scanning the entire codebase.
+
+| Directory | CLAUDE.md | What it covers |
+|---|---|---|
+| `src/repo_analyzer/` | [`src/repo_analyzer/CLAUDE.md`](src/repo_analyzer/CLAUDE.md) | Core package — analyzer, CLI, inventory, models, sub-packages |
+| `src/repo_analyzer/parsers/` | [`src/repo_analyzer/parsers/CLAUDE.md`](src/repo_analyzer/parsers/CLAUDE.md) | Per-format parsers (Compose, Dockerfile, dotenv, Nginx, Python AST) |
+| `src/repo_analyzer/reporters/` | [`src/repo_analyzer/reporters/CLAUDE.md`](src/repo_analyzer/reporters/CLAUDE.md) | JSON and Markdown output formatters |
+| `src/repo_analyzer/rules/` | [`src/repo_analyzer/rules/CLAUDE.md`](src/repo_analyzer/rules/CLAUDE.md) | Pure rule engine (`kubernetes_p0.py`) |
+| `tests/` | [`tests/CLAUDE.md`](tests/CLAUDE.md) | Test files, fixtures, coverage map |
+| `integrations/` | [`integrations/CLAUDE.md`](integrations/CLAUDE.md) | Runtime-agnostic tool wrapper and schema |
+| `docs/` | [`docs/CLAUDE.md`](docs/CLAUDE.md) | Operational docs (troubleshooting) |
+| `examples/` | [`examples/CLAUDE.md`](examples/CLAUDE.md) | Committed reference outputs (golden JSON + report) |
+| `skills/` | [`skills/CLAUDE.md`](skills/CLAUDE.md) | Agent Skill definitions |
+
 ## Not tracked in git
 
 Pre-existing agent-memory infra at the repo root (`.agents/`, `.claude/`,
 `data/`, `skills-lock.json`) plus `.venv/` and `output/` are gitignored — they are
 not part of this tool.
+
+## Git workflow
+
+### Branch strategy
+
+**Never commit directly to `main`.** All work happens on a feature branch.
+
+```
+git checkout -b <type>/<short-description>
+```
+
+Branch naming follows the commit type prefix:
+
+- `feat/add-toml-parser`
+- `fix/dockerfile-continuation-line`
+- `refactor/split-rule-engine`
+- `test/determinism-edge-cases`
+- `docs/update-readme-commands`
+- `chore/bump-pydantic-v2`
+
+Keep the description short (2–4 words, kebab-case). One logical change per
+branch. Merge back to `main` via PR (or fast-forward if solo) after all tests
+pass.
+
+### Commit message convention
+
+Follow **Conventional Commits** in imperative mood, present tense.
+
+```
+<type>(<scope>): <subject>
+```
+
+Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`, `perf`.
+
+Scope is the module or area touched — e.g. `parser`, `compose`, `dockerfile`,
+`rules`, `models`, `cli`, `reporter`, `inventory`. Omit scope only when the
+change is truly cross-cutting.
+
+Examples:
+
+```
+feat(parser): add TOML parser with source-line tracking
+fix(compose): handle unquoted port values in short syntax
+test(rules): add determinism assertion for networking section
+refactor(models): extract Evidence into standalone module
+docs(cli): document --git-ref flag usage
+chore: upgrade ruamel.yaml to 0.18
+```
+
+Rules:
+
+- Subject line ≤ 72 characters, no trailing period.
+- Imperative mood ("add", not "added" or "adds").
+- No extra content such as "Generated with Claude Code" or author attributions.
+- If a body is needed, separate it from the subject with a blank line. Explain
+  **why**, not what (the diff shows what).
+- For breaking changes, add `!` after the scope: `feat(models)!: rename Evidence.selector to Evidence.path`.
+
+### When to commit
+
+- **Atomic commits.** Each commit is one logical unit of change — a single
+  feature sub-task, a single bug fix, or a single refactor. Do not bundle
+  unrelated changes.
+- **Commit after each verification step passes.** When a step in the task plan
+  passes its tests, commit before moving to the next step.
+- **Commit before switching context.** If you need to change direction or start
+  a different sub-task, commit current passing work first.
+- **Do not commit broken code.** Every commit on the branch should leave tests
+  passing (`uv run pytest`). If tests fail, fix before committing.
+- **Split by concern, not by file.** If one logical change touches three files,
+  that is one commit. If one file has two unrelated changes, that is two commits
+  (stage with `git add -p`).
 
 ## Environment & troubleshooting
 
