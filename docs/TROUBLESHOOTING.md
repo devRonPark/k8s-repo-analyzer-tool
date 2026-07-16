@@ -15,18 +15,26 @@ fatal: Unable to create '.git/index.lock': File exists.
 Another git process seems to be running in this repository...
 ```
 
-A prior git operation left a stale `.git/index.lock`, and the mount won't let git
-(or `rm`) delete it.
+A prior git operation left stale lockfiles under `.git`, and the mount won't let
+git (or `rm`) delete them. `git commit` touches **several** locks in sequence, so
+you may hit them one at a time: `.git/index.lock`, then `.git/HEAD.lock`, then
+`.git/refs/heads/<branch>.lock`.
 
-**Do NOT** try `rm -f .git/index.lock` — it fails on this mount.
+**Do NOT** try `rm -f` on them — delete fails on this mount.
 
-**Fix — rename the lock aside, then commit:**
+**Fix — rename every stale `.git` lock aside, then commit:**
 
 ```bash
 cd <project>           # bash path: /sessions/<session>/mnt/k8s-repo-analyze-agent
-mv .git/index.lock .git/index.lock.stale   # rename works even though delete doesn't
-git commit -m "..."                        # git's own lockfiles use rename -> succeeds
+# Move ALL known git locks aside in one go (rename works even though delete doesn't)
+for lock in .git/index.lock .git/HEAD.lock .git/refs/heads/*.lock; do
+  [ -f "$lock" ] && mv "$lock" "$lock.stale.$$"
+done
+git commit -m "..."    # git's own lockfiles use create+rename -> succeeds
 ```
+
+If a lock reappears mid-command, just rerun the loop + commit; each stale lock
+only needs to be moved aside once.
 
 **Notes**
 
