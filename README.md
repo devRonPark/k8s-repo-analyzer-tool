@@ -21,6 +21,20 @@ whether the frontend API URL is build-time or runtime, Kubernetes workload
 drafts, and — importantly — the operational inputs that **cannot** be decided
 from the repository.
 
+Two stack families are covered today:
+
+- **Container/compose stacks** (e.g. FastAPI + Postgres + Nginx): compose
+  services, Dockerfiles, dotenv, Nginx, Python settings.
+- **Maven / Java web applications** (e.g. a WAR on an external servlet
+  container): `pom.xml` (packaging, finalName, Java version, dependencies with
+  scope, per-profile application servers), `web.xml` (servlets, listeners,
+  mappings), and Spring application-context datasources (embedded vs external).
+  This surfaces WAR packaging, the external-servlet-container dependency and its
+  Maven-profile alternatives, the non-root HTTP **context path**, embedded
+  (ephemeral) datastores, image-build risks (runtime server download, PID-1
+  signal handling, root user), and Dockerfile↔README↔POM cross-checks
+  (undefined run profile, JDK version mismatch).
+
 Every finding is labeled:
 
 - `explicit` — stated directly in a file.
@@ -59,14 +73,20 @@ uv run repo-analyzer analyze \
 - `--git-ref`: optional commit/ref recorded in metadata for traceability.
 - With no `--json-output`/`--markdown-output`, the JSON is written to stdout.
 
-Try it against the committed golden fixture:
+Try it against a committed golden fixture:
 
 ```bash
+# compose stack (FastAPI + Postgres + Nginx)
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
-  --profile kubernetes-p0 \
   --json-output ./output/analysis.json \
   --markdown-output ./output/report.md
+
+# Maven WAR on an external servlet container (jpetstore-6)
+uv run repo-analyzer analyze \
+  --repo tests/fixtures/jpetstore-6 \
+  --json-output ./output/jpetstore.json \
+  --markdown-output ./output/jpetstore.md
 ```
 
 Committed example outputs live in [`examples/`](./examples/).
@@ -94,8 +114,14 @@ The JSON result contains these top-level sections (stable key order):
 
 `schema_version`, `repository`, `detected_files`, `components`,
 `workload_mappings`, `networking`, `configuration`, `secrets`, `storage`,
-`startup_order`, `health_checks`, `build_time_constraints`,
-`unresolved_operational_inputs`, `warnings`, `unsupported_constructs`.
+`runtime_dependencies`, `startup_order`, `health_checks`,
+`build_time_constraints`, `container_image`, `unresolved_operational_inputs`,
+`warnings`, `unsupported_constructs`.
+
+`runtime_dependencies` lists external services / datastores (or an embedded,
+ephemeral one). `container_image` reports image build/run facts and risks
+(base image, build/start command, runtime server download, signal handling,
+root user).
 
 Each primary finding looks like:
 
@@ -145,15 +171,22 @@ uv run pytest
 ```
 
 Coverage includes: a unit test suite per parser (compose, dockerfile, dotenv,
-nginx, python-settings), rule/golden-fixture integration tests, a byte-level
-determinism test, a "target repo is never modified" test, and
-missing-file / bad-profile / malformed-input / unsupported-construct tests. All
-fixtures are local; **no test touches the network**.
+nginx, python-settings, maven, webxml, spring-xml), two rule/golden-fixture
+integration suites (compose stack and Maven WAR), category-level generalization
+tests (implicit Dockerfile resolution, published-port fallback, Maven-without-
+compose), byte-level determinism tests, "target repo is never modified" tests,
+and missing-file / bad-profile / malformed-input / unsupported-construct tests.
+All fixtures are local; **no test touches the network**.
 
-The golden fixture (`tests/fixtures/full-stack-fastapi/`) is a pinned local copy
-of the P0-relevant files from
-[`fastapi/full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template)
-at commit `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`.
+Golden fixtures are pinned local copies of the P0-relevant files:
+
+- `tests/fixtures/full-stack-fastapi/` from
+  [`fastapi/full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template)
+  @ `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`.
+- `tests/fixtures/jpetstore-6/` from
+  [`mybatis/jpetstore-6`](https://github.com/mybatis/jpetstore-6)
+  @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d` (`mvnw`/`mvnw.cmd` are minimal
+  placeholders — only their presence drives build-tool detection).
 
 ## Project structure
 
@@ -167,8 +200,9 @@ at commit `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`.
 │   ├── models.py              # Pydantic result schema (fixed key order)
 │   ├── inventory.py           # file discovery by name/pattern
 │   ├── analyzer.py            # orchestration (all filesystem reads)
-│   ├── parsers/               # compose, dockerfile, dotenv, nginx, python_settings
-│   ├── rules/kubernetes_p0.py # pure rule engine: facts -> findings
+│   ├── parsers/               # compose, dockerfile, dotenv, nginx, python_settings,
+│   │                          #   maven, webxml, spring_xml, xml_source
+│   ├── rules/                 # kubernetes_p0 (engine) + java_webapp (Maven/WAR rules)
 │   └── reporters/             # json_reporter, markdown_reporter
 ├── skills/kubernetes-repository-analyzer/SKILL.md
 ├── integrations/

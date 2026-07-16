@@ -58,12 +58,20 @@
       "build_context": null,
       "dockerfile": null,
       "build_args": [],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
       "runtime": "PostgreSQL",
       "command": null,
       "workers": null,
       "container_ports": [
         5432
       ],
+      "context_path": null,
       "published_ports": [],
       "environment": [
         "PGDATA",
@@ -74,6 +82,7 @@
       "secret_candidates": [
         "POSTGRES_PASSWORD"
       ],
+      "runtime_dependencies": [],
       "volumes": [
         "app-db-data -> /var/lib/postgresql/data/pgdata"
       ],
@@ -93,17 +102,26 @@
       "build_context": null,
       "dockerfile": null,
       "build_args": [],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
       "runtime": "Adminer (DB admin UI)",
       "command": null,
       "workers": null,
       "container_ports": [
         8080
       ],
+      "context_path": null,
       "published_ports": [],
       "environment": [
         "ADMINER_DESIGN"
       ],
       "secret_candidates": [],
+      "runtime_dependencies": [],
       "volumes": [],
       "healthcheck": null,
       "depends_on": [],
@@ -120,6 +138,13 @@
       "build_context": ".",
       "dockerfile": "backend/Dockerfile",
       "build_args": [],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
       "runtime": "FastAPI",
       "command": [
         "bash",
@@ -127,6 +152,7 @@
       ],
       "workers": null,
       "container_ports": [],
+      "context_path": null,
       "published_ports": [],
       "environment": [
         "DOMAIN",
@@ -154,6 +180,7 @@
         "POSTGRES_PASSWORD",
         "SENTRY_DSN"
       ],
+      "runtime_dependencies": [],
       "volumes": [],
       "healthcheck": null,
       "depends_on": [],
@@ -170,6 +197,13 @@
       "build_context": ".",
       "dockerfile": "backend/Dockerfile",
       "build_args": [],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
       "runtime": "FastAPI",
       "command": [
         "fastapi",
@@ -181,6 +215,7 @@
       "container_ports": [
         8000
       ],
+      "context_path": null,
       "published_ports": [],
       "environment": [
         "DOMAIN",
@@ -208,6 +243,7 @@
         "POSTGRES_PASSWORD",
         "SENTRY_DSN"
       ],
+      "runtime_dependencies": [],
       "volumes": [],
       "healthcheck": "HTTP GET /api/v1/utils/health-check/",
       "depends_on": [],
@@ -227,15 +263,24 @@
         "VITE_API_URL",
         "NODE_ENV"
       ],
+      "language": null,
+      "frameworks": [],
+      "build_tool": null,
+      "build_command": null,
+      "build_artifact": null,
+      "packaging": null,
+      "application_server": null,
       "runtime": "Nginx (static assets)",
       "command": null,
       "workers": null,
       "container_ports": [
         80
       ],
+      "context_path": null,
       "published_ports": [],
       "environment": [],
       "secret_candidates": [],
+      "runtime_dependencies": [],
       "volumes": [],
       "healthcheck": null,
       "depends_on": [],
@@ -849,6 +894,7 @@
       ]
     }
   ],
+  "runtime_dependencies": [],
   "startup_order": [
     {
       "subject": "startup.order",
@@ -1001,6 +1047,7 @@
       ]
     }
   ],
+  "container_image": [],
   "unresolved_operational_inputs": [
     {
       "subject": "replica_count",
@@ -1018,7 +1065,7 @@
     },
     {
       "subject": "ingress_class",
-      "reason": "cluster ingress controller is environment-specific (repo only shows Traefik labels)",
+      "reason": "cluster ingress controller is environment-specific and not declared in the repo",
       "needed_input": "target IngressClass in the destination cluster",
       "kubernetes_effect": "Ingress.spec.ingressClassName",
       "no_default_used": true

@@ -85,6 +85,10 @@
 
 - db.persistent_volume: `app-db-data` at `/var/lib/postgresql/data/pgdata` — PersistentVolumeClaim + volumeMount (StatefulSet volumeClaimTemplate candidate) (explicit); evidence `compose.yml:13-13` ($.services.db.volumes[0])
 
+## 4b. Runtime dependencies (external services & datastores)
+
+_No external runtime dependencies detected._
+
 ## 5. Configuration & Secrets
 
 ### ConfigMap candidates
@@ -146,6 +150,10 @@ Overall order (derived):
 - frontend.vite_api_url_binding: **build-time** — VITE_API_URL is baked into the image at build time; it cannot be changed via runtime env/ConfigMap. Rebuild per environment or introduce runtime config. (derived)
   - evidence: `compose.yml:149-149` ($.services.frontend.build.args[0]); `frontend/Dockerfile:15-15` (ARG); `frontend/src/main.tsx:16-16` (VITE_API_URL)
 
+## 8b. Container image build & runtime
+
+_No container image facts detected._
+
 ## 9. Unresolved operational inputs
 
 _These are NOT decided from the repository. No default values were invented._
@@ -154,7 +162,7 @@ _These are NOT decided from the repository. No default values were invented._
 | --- | --- | --- | --- |
 | replica_count | desired availability/throughput is an operational decision, not in the repo | target replicas per Deployment (SLO / load expectations) | Deployment.spec.replicas |
 | resource_requests_limits | repo contains no CPU/memory sizing information | measured or estimated CPU/memory per component | container resources.requests / resources.limits |
-| ingress_class | cluster ingress controller is environment-specific (repo only shows Traefik labels) | target IngressClass in the destination cluster | Ingress.spec.ingressClassName |
+| ingress_class | cluster ingress controller is environment-specific and not declared in the repo | target IngressClass in the destination cluster | Ingress.spec.ingressClassName |
 | horizontal_pod_autoscaler | no scaling policy is expressed in the repo | scaling metric and min/max replicas | HorizontalPodAutoscaler |
 | pod_disruption_budget | availability tolerance during disruptions is an operational decision | minAvailable/maxUnavailable policy | PodDisruptionBudget |
 | pvc_size | database volume size is not declared in the repo | expected data volume / growth for the database PVC | PersistentVolumeClaim.spec.resources.requests.storage |
@@ -178,7 +186,9 @@ _No unsupported constructs._
 2. **Which workloads?** db → StatefulSet + headless Service (or external managed database); adminer → Deployment + ClusterIP Service (optional admin tool); prestart → Job (pre-deploy / init hook); backend → Deployment + ClusterIP Service; frontend → Deployment + ClusterIP Service (static assets via Nginx)
 3. **Ports/Services?** db:5432; adminer:8080; backend:8000; frontend:80
 4. **What must persist?** app-db-data→/var/lib/postgresql/data/pgdata
-5. **ConfigMap/Secret?** 19 config keys, 5 secret keys
+5. **ConfigMap/Secret?** 19 ConfigMap keys, 5 secret keys
 6. **Init first?** alembic upgrade head; python app/initial_data.py
-7. **Undecidable from repo?** 8 operational inputs (see section 9)
+7. **External runtime dependencies?** none
+8. **HTTP context path?** / (root)
+9. **Undecidable from repo?** 8 operational inputs (see section 9)
 

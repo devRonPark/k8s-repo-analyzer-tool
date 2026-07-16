@@ -7,10 +7,10 @@ Core package. Data flows one-way: inventory → parsers → rules → models →
 | File | Lines | Role |
 |---|---|---|
 | `__init__.py` | 0 | Package marker |
-| `analyzer.py` | 130 | Orchestrator — all filesystem reads happen here, then calls the pure rule engine |
+| `analyzer.py` | — | Orchestrator — all filesystem reads happen here (compose, dockerfiles, dotenv, nginx, settings, pom.xml, web.xml, Spring XML, README), then calls the pure rule engine |
 | `cli.py` | 66 | CLI entry point (`repo-analyzer analyze`), argparse |
-| `inventory.py` | 135 | Discovers P0-relevant files by name/pattern (no content parsing); picks primary compose file |
-| `models.py` | 126 | Pydantic v2 schema (`extra="forbid"`); field order fixes JSON key order for determinism |
+| `inventory.py` | — | Discovers P0-relevant files by name/pattern (no content parsing); picks primary compose file; also finds pom.xml, web.xml, Spring-context candidates, README, build wrappers |
+| `models.py` | — | Pydantic v2 schema (`extra="forbid"`); field order fixes JSON key order for determinism. Sections incl. `runtime_dependencies`, `container_image`; `Component` carries the Java/WAR workload summary fields |
 
 ## Sub-packages
 

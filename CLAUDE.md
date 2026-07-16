@@ -10,10 +10,12 @@ repository content → **byte-identical JSON**. Facts are extracted by Python
 parsers with source-line evidence; **no LLM inspects the repo**. An Agent Skill is
 only a thin layer that detects intent, calls the tool, and explains the result.
 
-Only the `kubernetes-p0` profile exists. **Non-goals** (do not add without a
-request): Kubernetes/Helm manifest generation, resource sizing, replica/PVC/HPA/
-PDB/StorageClass/IngressClass decisions, full business-code or security analysis,
-P1/P2 depth.
+Only the `kubernetes-p0` profile exists. Two stack families are supported:
+compose/Dockerfile stacks (FastAPI-style) and **Maven / Java web applications**
+(WAR on an external servlet container — pom.xml, web.xml, Spring datasources).
+**Non-goals** (do not add without a request): Kubernetes/Helm manifest
+generation, resource sizing, replica/PVC/HPA/PDB/StorageClass/IngressClass
+decisions, full business-code or security analysis, P1/P2 depth.
 
 ## Core invariants (do not break)
 
@@ -38,20 +40,26 @@ P1/P2 depth.
 ## Architecture (one-way, no cycles)
 
 ```
-inventory  ->  parsers  ->  rules/kubernetes_p0  ->  models  ->  reporters
+inventory  ->  parsers  ->  rules/{kubernetes_p0,java_webapp}  ->  models  ->  reporters
 ```
 
 - `src/repo_analyzer/inventory.py` — discover P0-relevant files by name/pattern
   (no content parsing). Picks the primary compose file; extra compose files are
-  detected but **not merged** (warning emitted).
+  detected but **not merged** (warning emitted). Also detects `pom.xml`,
+  `web.xml`, Spring-context XML candidates, README, and build wrappers (`mvnw`).
 - `src/repo_analyzer/parsers/` — one module per format, each preserving source
   line ranges via `common.Located`:
   `compose.py` (ruamel.yaml, line-preserving), `dockerfile.py` (instruction-level,
   joins `\` continuations), `dotenv.py`, `nginx.py` (brace/`;` tokenizer),
-  `python_settings.py` (AST → `BaseSettings` fields).
+  `python_settings.py` (AST → `BaseSettings` fields), and for Java:
+  `xml_source.py` (line-preserving SAX XML tree), `maven.py` (pom.xml: packaging,
+  finalName, java version, deps+scope, profiles→app servers), `webxml.py`
+  (servlets/listeners/mappings), `spring_xml.py` (embedded vs external datasource).
 - `src/repo_analyzer/rules/kubernetes_p0.py` — **pure function**: parsed facts in,
   `AnalysisResult` out. The only place explicit facts become derived conclusions
-  and unknowns become `unresolved`. No I/O here.
+  and unknowns become `unresolved`. No I/O here. Runs the compose path, then
+  delegates Maven/WAR analysis to `rules/java_webapp.py:analyze_java_webapp`
+  (also pure; enriches the matching component or synthesizes one without compose).
 - `src/repo_analyzer/models.py` — Pydantic v2 schema; field order is intentional
   (fixes JSON key order). `extra="forbid"`.
 - `src/repo_analyzer/reporters/` — `json_reporter.py` (canonical bytes),
@@ -76,32 +84,46 @@ inventory  ->  parsers  ->  rules/kubernetes_p0  ->  models  ->  reporters
 
 `schema_version`, `repository`, `detected_files`, `components`,
 `workload_mappings`, `networking`, `configuration`, `secrets`, `storage`,
-`startup_order`, `health_checks`, `build_time_constraints`,
-`unresolved_operational_inputs`, `warnings`, `unsupported_constructs`.
+`runtime_dependencies`, `startup_order`, `health_checks`,
+`build_time_constraints`, `container_image`, `unresolved_operational_inputs`,
+`warnings`, `unsupported_constructs`.
+
+(`runtime_dependencies` = external/embedded datastores & brokers;
+`container_image` = image build/run facts & risks. `Component` also carries a
+workload summary: `language`, `frameworks`, `build_tool`, `build_command`,
+`build_artifact`, `packaging`, `application_server`, `context_path`,
+`runtime_dependencies`.)
 
 ## Commands
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 45 tests, fully offline
+uv run pytest                             # 79 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \
   --json-output ./output/analysis.json \
   --markdown-output ./output/report.md
+# Maven WAR category:
+uv run repo-analyzer analyze --repo tests/fixtures/jpetstore-6 \
+  --json-output ./output/jpetstore.json --markdown-output ./output/jpetstore.md
 ```
 
-Committed example outputs live in `examples/`. `output/` is gitignored.
+Committed example outputs live in `examples/` (fastapi + jpetstore). `output/`
+is gitignored.
 
 ## Tests / fixtures
 
-Test-first where practical. Coverage: per-parser unit tests, rule/golden
-integration, byte-determinism, "target repo not modified", and
+Test-first where practical. Coverage: per-parser unit tests (incl. maven,
+webxml, spring-xml), two golden integration suites (compose + Maven WAR),
+category generalization tests (implicit Dockerfile, published-port fallback,
+Maven-without-compose), byte-determinism, "target repo not modified", and
 missing-file / bad-profile / malformed-input / unsupported-construct.
-**No test touches the network.** Golden fixture
-`tests/fixtures/full-stack-fastapi/` is a pinned local copy of the P0-relevant
-files from `fastapi/full-stack-fastapi-template` @
-`4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`. When fixing a bug, add a failing test
+**No test touches the network.** Golden fixtures are pinned local copies of the
+P0-relevant files: `tests/fixtures/full-stack-fastapi/` @
+`4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`; `tests/fixtures/jpetstore-6/`
+(`mybatis/jpetstore-6`) @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d` (mvnw
+files are placeholders — presence only). When fixing a bug, add a failing test
 first.
 
 ## Directory index
@@ -112,9 +134,9 @@ relevant directory's `CLAUDE.md` instead of scanning the entire codebase.
 | Directory | CLAUDE.md | What it covers |
 |---|---|---|
 | `src/repo_analyzer/` | [`src/repo_analyzer/CLAUDE.md`](src/repo_analyzer/CLAUDE.md) | Core package — analyzer, CLI, inventory, models, sub-packages |
-| `src/repo_analyzer/parsers/` | [`src/repo_analyzer/parsers/CLAUDE.md`](src/repo_analyzer/parsers/CLAUDE.md) | Per-format parsers (Compose, Dockerfile, dotenv, Nginx, Python AST) |
+| `src/repo_analyzer/parsers/` | [`src/repo_analyzer/parsers/CLAUDE.md`](src/repo_analyzer/parsers/CLAUDE.md) | Per-format parsers (Compose, Dockerfile, dotenv, Nginx, Python AST, Maven, web.xml, Spring XML) |
 | `src/repo_analyzer/reporters/` | [`src/repo_analyzer/reporters/CLAUDE.md`](src/repo_analyzer/reporters/CLAUDE.md) | JSON and Markdown output formatters |
-| `src/repo_analyzer/rules/` | [`src/repo_analyzer/rules/CLAUDE.md`](src/repo_analyzer/rules/CLAUDE.md) | Pure rule engine (`kubernetes_p0.py`) |
+| `src/repo_analyzer/rules/` | [`src/repo_analyzer/rules/CLAUDE.md`](src/repo_analyzer/rules/CLAUDE.md) | Pure rule engine (`kubernetes_p0.py`, `java_webapp.py`) |
 | `tests/` | [`tests/CLAUDE.md`](tests/CLAUDE.md) | Test files, fixtures, coverage map |
 | `integrations/` | [`integrations/CLAUDE.md`](integrations/CLAUDE.md) | Runtime-agnostic tool wrapper and schema |
 | `docs/` | [`docs/CLAUDE.md`](docs/CLAUDE.md) | Operational docs (troubleshooting) |

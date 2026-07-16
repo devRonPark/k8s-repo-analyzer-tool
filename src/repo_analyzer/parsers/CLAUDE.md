@@ -14,6 +14,10 @@ One parser per file format. Every parser preserves source line ranges using
 | `dotenv.py` | 65 | `.env` | dotenv format key=value parser |
 | `nginx.py` | 101 | nginx.conf | Brace/`;` tokenizer, directive-centric |
 | `python_settings.py` | 82 | Python (Pydantic BaseSettings) | AST visitor → `BaseSettings` field extraction |
+| `xml_source.py` | — | XML (any) | Line-preserving SAX tree (`XmlNode`); prefixes kept in `qname`, stripped in `tag`; external entities disabled (offline/safe) |
+| `maven.py` | — | Maven `pom.xml` | Structural via `xml_source`; packaging, finalName, java version (+line), deps w/ scope, `${prop}` resolution, profiles→cargo container ids |
+| `webxml.py` | — | Servlet `web.xml` | Servlets, filters, listeners, servlet-mappings (url-patterns) |
+| `spring_xml.py` | — | Spring context XML | Narrow datasource detector: embedded-database + init scripts vs external `DataSource` bean/JDBC URL; namespace-checks Spring vs CDI `<beans>` |
 
 ## Invariants
 

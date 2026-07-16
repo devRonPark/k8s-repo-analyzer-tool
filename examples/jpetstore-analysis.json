@@ -1,0 +1,676 @@
+{
+  "schema_version": "1.0",
+  "repository": {
+    "name": "jpetstore-6",
+    "profile": "kubernetes-p0",
+    "git_ref": "5a7cc780505b88a60779b3e3c0a50b0e404cfb2d",
+    "file_count": 8
+  },
+  "detected_files": [
+    {
+      "path": "Dockerfile",
+      "kind": "dockerfile"
+    },
+    {
+      "path": "README.md",
+      "kind": "readme"
+    },
+    {
+      "path": "docker-compose.yaml",
+      "kind": "compose"
+    },
+    {
+      "path": "mvnw",
+      "kind": "build-wrapper"
+    },
+    {
+      "path": "mvnw.cmd",
+      "kind": "build-wrapper"
+    },
+    {
+      "path": "pom.xml",
+      "kind": "maven-pom"
+    },
+    {
+      "path": "src/main/webapp/WEB-INF/applicationContext.xml",
+      "kind": "spring-context"
+    },
+    {
+      "path": "src/main/webapp/WEB-INF/web.xml",
+      "kind": "web-descriptor"
+    }
+  ],
+  "components": [
+    {
+      "name": "jpetstore",
+      "source_files": [
+        "Dockerfile",
+        "README.md",
+        "docker-compose.yaml",
+        "pom.xml",
+        "src/main/webapp/WEB-INF/applicationContext.xml",
+        "src/main/webapp/WEB-INF/web.xml"
+      ],
+      "image": null,
+      "build_context": ".",
+      "dockerfile": "Dockerfile",
+      "build_args": [],
+      "language": "Java 17",
+      "frameworks": [
+        "MyBatis 3.5.19",
+        "MyBatis-Spring 3.0.6",
+        "Spring Framework 6.2.19",
+        "Stripes 1.6.0"
+      ],
+      "build_tool": "Maven (mvnw wrapper)",
+      "build_command": "./mvnw clean package",
+      "build_artifact": "target/jpetstore.war",
+      "packaging": "war",
+      "application_server": "External servlet container — Apache Tomcat 9.0.120 by default (Maven profile 'tomcat9'); alternatives via Maven profiles: Apache TomEE, WildFly, WebSphere Liberty, Eclipse Jetty, GlassFish, Payara, Resin",
+      "runtime": "Java 17 web application (WAR) — requires an external servlet container",
+      "command": [
+        "./mvnw",
+        "cargo:run",
+        "-P",
+        "tomcat90"
+      ],
+      "workers": null,
+      "container_ports": [
+        8080
+      ],
+      "context_path": "/jpetstore",
+      "published_ports": [
+        "8080:8080"
+      ],
+      "environment": [],
+      "secret_candidates": [],
+      "runtime_dependencies": [
+        "Embedded HSQL in-memory database (no external DB by default)"
+      ],
+      "volumes": [],
+      "healthcheck": null,
+      "depends_on": [],
+      "workload_candidate": "Deployment + ClusterIP Service + Ingress (context path /jpetstore)",
+      "unresolved": []
+    }
+  ],
+  "workload_mappings": [
+    {
+      "component": "jpetstore",
+      "kubernetes_kind": "Deployment + ClusterIP Service + Ingress (context path /jpetstore)",
+      "confidence": "derived",
+      "rationale": "Stateless Java web application (WAR) on an external servlet container; horizontally scalable behind a Service. Uses an in-process in-memory database, so replicas do NOT share state — externalise the database before running more than one replica.",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "packaging",
+          "symbol": "packaging",
+          "start_line": 33,
+          "end_line": 33
+        },
+        {
+          "path": "Dockerfile",
+          "selector": "Dockerfile",
+          "symbol": "build",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ],
+      "unresolved": [
+        "replica count",
+        "CPU/memory",
+        "readiness/liveness probe",
+        "securityContext (runAsNonRoot)",
+        "ingress class & host",
+        "externalize database for >1 replica"
+      ]
+    }
+  ],
+  "networking": [
+    {
+      "subject": "jpetstore.container_port",
+      "value": 8080,
+      "confidence": "explicit",
+      "kubernetes_effect": "jpetstore Service targetPort candidate",
+      "evidence": [
+        {
+          "path": "docker-compose.yaml",
+          "selector": "$.services.jpetstore.ports[0]",
+          "symbol": "ports.published",
+          "start_line": 25,
+          "end_line": 25
+        }
+      ]
+    },
+    {
+      "subject": "app.context_path",
+      "value": "/jpetstore",
+      "confidence": "derived",
+      "kubernetes_effect": "the app is served under '/jpetstore', not '/'. Ingress must route this path (or rename the WAR to ROOT); Service targetPort is unaffected.",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "build.finalName",
+          "symbol": "finalName",
+          "start_line": 247,
+          "end_line": 247
+        },
+        {
+          "path": "README.md",
+          "selector": "README",
+          "symbol": "run-instructions",
+          "start_line": 61,
+          "end_line": 61
+        }
+      ]
+    },
+    {
+      "subject": "servlet.StripesDispatcher",
+      "value": "*.action",
+      "confidence": "explicit",
+      "kubernetes_effect": "HTTP route handled by the app (full path e.g. '/jpetstore/...*.action')",
+      "evidence": [
+        {
+          "path": "src/main/webapp/WEB-INF/web.xml",
+          "selector": "servlet-mapping[StripesDispatcher]",
+          "symbol": "servlet-mapping",
+          "start_line": 60,
+          "end_line": 63
+        }
+      ]
+    }
+  ],
+  "configuration": [
+    {
+      "subject": "runtime.language",
+      "value": "Java 17",
+      "confidence": "explicit",
+      "kubernetes_effect": "informs the container base image (JRE/JDK major version)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "properties.java.version",
+          "symbol": "java.version",
+          "start_line": 62,
+          "end_line": 62
+        }
+      ]
+    },
+    {
+      "subject": "framework.mybatis",
+      "value": "3.5.19",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (no direct K8s object; informs runtime behaviour)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "dependency[mybatis]",
+          "symbol": "dependency",
+          "start_line": 97,
+          "end_line": 101
+        }
+      ]
+    },
+    {
+      "subject": "framework.mybatis-spring",
+      "value": "3.0.6",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (no direct K8s object; informs runtime behaviour)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "dependency[mybatis-spring]",
+          "symbol": "dependency",
+          "start_line": 102,
+          "end_line": 106
+        }
+      ]
+    },
+    {
+      "subject": "framework.spring_framework",
+      "value": "6.2.19",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (no direct K8s object; informs runtime behaviour)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "dependency[spring-context]",
+          "symbol": "dependency",
+          "start_line": 107,
+          "end_line": 111
+        }
+      ]
+    },
+    {
+      "subject": "framework.stripes",
+      "value": "1.6.0",
+      "confidence": "explicit",
+      "kubernetes_effect": "application framework (no direct K8s object; informs runtime behaviour)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "dependency[stripes]",
+          "symbol": "dependency",
+          "start_line": 123,
+          "end_line": 137
+        }
+      ]
+    },
+    {
+      "subject": "build.tool",
+      "value": "Maven (mvnw wrapper)",
+      "confidence": "explicit",
+      "kubernetes_effect": "build system that produces the deployable artifact (build image / CI)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "packaging",
+          "symbol": "packaging",
+          "start_line": 33,
+          "end_line": 33
+        }
+      ]
+    },
+    {
+      "subject": "build.artifact",
+      "value": "target/jpetstore.war",
+      "confidence": "derived",
+      "kubernetes_effect": "the WAR/JAR that must be present in (or built into) the container image",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "build.finalName",
+          "symbol": "finalName",
+          "start_line": 247,
+          "end_line": 247
+        },
+        {
+          "path": "pom.xml",
+          "selector": "packaging",
+          "symbol": "packaging",
+          "start_line": 33,
+          "end_line": 33
+        }
+      ]
+    },
+    {
+      "subject": "profile.tomcat9",
+      "value": "Apache Tomcat 9.0.120",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[tomcat9]",
+          "symbol": "profile",
+          "start_line": 336,
+          "end_line": 364
+        }
+      ]
+    },
+    {
+      "subject": "profile.tomee80",
+      "value": "Apache TomEE 8.0.16",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[tomee80]",
+          "symbol": "profile",
+          "start_line": 365,
+          "end_line": 391
+        }
+      ]
+    },
+    {
+      "subject": "profile.wildfly26",
+      "value": "WildFly 26.1.3.Final",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[wildfly26]",
+          "symbol": "profile",
+          "start_line": 392,
+          "end_line": 419
+        }
+      ]
+    },
+    {
+      "subject": "profile.liberty-ee8",
+      "value": "WebSphere Liberty 26.0.0.6",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[liberty-ee8]",
+          "symbol": "profile",
+          "start_line": 420,
+          "end_line": 447
+        }
+      ]
+    },
+    {
+      "subject": "profile.jetty",
+      "value": "Eclipse Jetty 12.1.11",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[jetty]",
+          "symbol": "profile",
+          "start_line": 448,
+          "end_line": 475
+        }
+      ]
+    },
+    {
+      "subject": "profile.glassfish5",
+      "value": "GlassFish 5.1.0",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[glassfish5]",
+          "symbol": "profile",
+          "start_line": 476,
+          "end_line": 502
+        }
+      ]
+    },
+    {
+      "subject": "profile.payara5",
+      "value": "Payara 5.2022.5",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[payara5]",
+          "symbol": "profile",
+          "start_line": 503,
+          "end_line": 530
+        }
+      ]
+    },
+    {
+      "subject": "profile.resin",
+      "value": "Resin 4.0.67",
+      "confidence": "explicit",
+      "kubernetes_effect": "Maven profile selecting the servlet container at run time (changes runtime image)",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[resin]",
+          "symbol": "profile",
+          "start_line": 531,
+          "end_line": 564
+        }
+      ]
+    },
+    {
+      "subject": "runtime.application_server",
+      "value": "External servlet container — Apache Tomcat 9.0.120 by default (Maven profile 'tomcat9'); alternatives via Maven profiles: Apache TomEE, WildFly, WebSphere Liberty, Eclipse Jetty, GlassFish, Payara, Resin",
+      "confidence": "derived",
+      "kubernetes_effect": "the app is NOT self-contained: it needs a servlet container. For K8s, bake the WAR into a fixed server image (e.g. tomcat:9-jre17) rather than downloading a server at runtime.",
+      "evidence": [
+        {
+          "path": "pom.xml",
+          "selector": "profile[tomcat9]",
+          "symbol": "profile.default",
+          "start_line": 336,
+          "end_line": 364
+        },
+        {
+          "path": "Dockerfile",
+          "selector": "CMD",
+          "symbol": "CMD",
+          "start_line": 21,
+          "end_line": 21
+        },
+        {
+          "path": "README.md",
+          "selector": "README",
+          "symbol": "run-instructions",
+          "start_line": 43,
+          "end_line": 43
+        }
+      ]
+    }
+  ],
+  "secrets": [],
+  "storage": [],
+  "runtime_dependencies": [
+    {
+      "subject": "database.embedded",
+      "value": "embedded HSQL (in-memory, in-process)",
+      "confidence": "derived",
+      "kubernetes_effect": "no external database is required by default. Data lives in the pod and is ephemeral; each replica has its own isolated copy. Externalise the DB (with JDBC config as ConfigMap/Secret) before scaling past 1 replica or needing durability.",
+      "evidence": [
+        {
+          "path": "src/main/webapp/WEB-INF/applicationContext.xml",
+          "selector": "jdbc:embedded-database",
+          "symbol": "jdbc:embedded-database",
+          "start_line": 31,
+          "end_line": 34
+        }
+      ]
+    }
+  ],
+  "startup_order": [
+    {
+      "subject": "startup.db_init",
+      "value": "classpath:database/jpetstore-hsqldb-schema.sql",
+      "confidence": "explicit",
+      "kubernetes_effect": "schema/seed SQL executed in-process at application startup; re-runs on every pod start (no separate migration Job for the embedded DB).",
+      "evidence": [
+        {
+          "path": "src/main/webapp/WEB-INF/applicationContext.xml",
+          "selector": "jdbc:script",
+          "symbol": "jdbc:script",
+          "start_line": 32,
+          "end_line": 32
+        }
+      ]
+    },
+    {
+      "subject": "startup.db_init",
+      "value": "classpath:database/jpetstore-hsqldb-dataload.sql",
+      "confidence": "explicit",
+      "kubernetes_effect": "schema/seed SQL executed in-process at application startup; re-runs on every pod start (no separate migration Job for the embedded DB).",
+      "evidence": [
+        {
+          "path": "src/main/webapp/WEB-INF/applicationContext.xml",
+          "selector": "jdbc:script",
+          "symbol": "jdbc:script",
+          "start_line": 33,
+          "end_line": 33
+        }
+      ]
+    }
+  ],
+  "health_checks": [],
+  "build_time_constraints": [],
+  "container_image": [
+    {
+      "subject": "image.build_command",
+      "value": "./mvnw clean package",
+      "confidence": "derived",
+      "kubernetes_effect": "produces the artifact during image build; needs network for dependency resolution",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "RUN",
+          "symbol": "RUN",
+          "start_line": 20,
+          "end_line": 20
+        },
+        {
+          "path": "README.md",
+          "selector": "README",
+          "symbol": "run-instructions",
+          "start_line": 37,
+          "end_line": 37
+        }
+      ]
+    },
+    {
+      "subject": "image.start_command",
+      "value": "./mvnw cargo:run -P tomcat90",
+      "confidence": "explicit",
+      "kubernetes_effect": "container entrypoint/command (Deployment container.command/args)",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "CMD",
+          "symbol": "CMD (shell form)",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "image.base",
+      "value": "openjdk:25",
+      "confidence": "explicit",
+      "kubernetes_effect": "container base image",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "FROM",
+          "symbol": "FROM",
+          "start_line": 17,
+          "end_line": 17
+        }
+      ]
+    },
+    {
+      "subject": "image.runtime_server_download",
+      "value": "server downloaded at container start (cargo:run)",
+      "confidence": "derived",
+      "kubernetes_effect": "the servlet container is fetched from the internet on every start; pods need egress and startup is slow/non-reproducible. Build a fixed WAR-on-Tomcat image instead.",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "CMD",
+          "symbol": "CMD",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "image.signal_handling",
+      "value": "Maven runs as PID 1 (shell form CMD)",
+      "confidence": "derived",
+      "kubernetes_effect": "SIGTERM goes to the mvn/mvnw wrapper, not the JVM, so graceful shutdown and fast pod termination are not guaranteed. Use exec form / tini, or run the server directly.",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "CMD",
+          "symbol": "CMD",
+          "start_line": 21,
+          "end_line": 21
+        }
+      ]
+    },
+    {
+      "subject": "image.runs_as_root",
+      "value": "no USER instruction",
+      "confidence": "derived",
+      "kubernetes_effect": "the container runs as root by default; set securityContext.runAsNonRoot / runAsUser and a non-root USER in the image.",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "USER",
+          "symbol": "(absent)",
+          "start_line": 17,
+          "end_line": 17
+        }
+      ]
+    }
+  ],
+  "unresolved_operational_inputs": [
+    {
+      "subject": "readiness_liveness_probe",
+      "reason": "the repository defines no health/readiness endpoint (no Spring Boot Actuator, no compose healthcheck)",
+      "needed_input": "an HTTP path or TCP port to probe (e.g. TCP 8080, or GET the context root once warm)",
+      "kubernetes_effect": "container readinessProbe / livenessProbe",
+      "no_default_used": true
+    },
+    {
+      "subject": "security_context_run_as_non_root",
+      "reason": "the image sets no USER; running as root is a deployment decision, not stated in the repo",
+      "needed_input": "target UID/GID and runAsNonRoot policy",
+      "kubernetes_effect": "Pod/container securityContext",
+      "no_default_used": true
+    },
+    {
+      "subject": "graceful_shutdown",
+      "reason": "start command runs a shell/Maven wrapper as PID 1; signal propagation to the JVM is not guaranteed",
+      "needed_input": "an exec-form entrypoint (or tini) and the app's termination behaviour",
+      "kubernetes_effect": "terminationGracePeriodSeconds, preStop hook, container.command",
+      "no_default_used": true
+    },
+    {
+      "subject": "external_database_for_scaling",
+      "reason": "the app uses an in-process in-memory database; replicas cannot share state and data is ephemeral",
+      "needed_input": "whether to externalise to a managed/in-cluster DB, and its connection details",
+      "kubernetes_effect": "external DB Service + ConfigMap/Secret; enables replicas>1 and durability",
+      "no_default_used": true
+    },
+    {
+      "subject": "replica_count",
+      "reason": "desired availability/throughput is an operational decision, not in the repo",
+      "needed_input": "target replicas per Deployment (SLO / load expectations)",
+      "kubernetes_effect": "Deployment.spec.replicas",
+      "no_default_used": true
+    },
+    {
+      "subject": "resource_requests_limits",
+      "reason": "repo contains no CPU/memory sizing information",
+      "needed_input": "measured or estimated CPU/memory per component",
+      "kubernetes_effect": "container resources.requests / resources.limits",
+      "no_default_used": true
+    },
+    {
+      "subject": "ingress_class",
+      "reason": "cluster ingress controller is environment-specific and not declared in the repo",
+      "needed_input": "target IngressClass in the destination cluster",
+      "kubernetes_effect": "Ingress.spec.ingressClassName",
+      "no_default_used": true
+    },
+    {
+      "subject": "horizontal_pod_autoscaler",
+      "reason": "no scaling policy is expressed in the repo",
+      "needed_input": "scaling metric and min/max replicas",
+      "kubernetes_effect": "HorizontalPodAutoscaler",
+      "no_default_used": true
+    },
+    {
+      "subject": "pod_disruption_budget",
+      "reason": "availability tolerance during disruptions is an operational decision",
+      "needed_input": "minAvailable/maxUnavailable policy",
+      "kubernetes_effect": "PodDisruptionBudget",
+      "no_default_used": true
+    }
+  ],
+  "warnings": [
+    {
+      "code": "run_profile_undefined",
+      "message": "run command activates Maven profile 'tomcat90', which is not defined in the POM (defined: glassfish5, jetty, liberty-ee8, payara5, resin, tomcat9, tomee80, wildfly26). It resolves only because the default profile stays active; verify the intended server.",
+      "path": "Dockerfile"
+    },
+    {
+      "code": "jdk_version_mismatch",
+      "message": "Dockerfile base image 'openjdk:25' targets Java 25, but the POM builds for Java 17. Align the runtime JDK to the build target to avoid class-version surprises.",
+      "path": "Dockerfile"
+    }
+  ],
+  "unsupported_constructs": []
+}

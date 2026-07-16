@@ -1,10 +1,13 @@
 # examples/
 
-Committed reference outputs from running the analyzer against `tests/fixtures/full-stack-fastapi/`.
+Committed reference outputs from running the analyzer against the golden
+fixtures. Regenerate with the CLI when the schema or rules change.
 
 ## Files
 
-| File | Lines | Role |
-|---|---|---|
-| `analysis.json` | 1085 | Golden JSON output — used to verify output stability across changes |
-| `report.md` | 184 | Workload-centric Markdown report — human-readable P0 summary |
+| File | Role |
+|---|---|
+| `analysis.json` | Golden JSON output for `full-stack-fastapi` (compose stack) |
+| `report.md` | Workload-centric Markdown report for `full-stack-fastapi` |
+| `jpetstore-analysis.json` | Golden JSON output for `jpetstore-6` (Maven WAR / external servlet container) |
+| `jpetstore-report.md` | Workload-centric Markdown report for `jpetstore-6` |
