@@ -206,8 +206,16 @@ def analyze_kubernetes_p0(
     _register_spring_detected(result, springs)
     _warn_extra_compose(result, inventory)
 
-    # Nothing to analyze at all: honestly report the absence and stop.
+    # No deployment compose and no Java build system. If a Dockerfile exists,
+    # synthesize a component from it (image/port/config); otherwise honestly
+    # report the absence and stop.
     if compose is None and not mavens and not gradles:
+        if dockerfiles:
+            _analyze_dockerfile_component(result, repo_name, dockerfiles)
+            _analyze_config_and_secrets(result, dotenvs)
+            _emit_alembic_init(result, inventory)
+            _emit_operational_unresolved(result, has_db=False)
+            return result
         result.warnings.append(
             Warning(code="no_compose", message="no compose file found; component topology unavailable")
         )
@@ -647,6 +655,198 @@ def _service_workload(
 
 
 # --------------------------------------------------------------------------- #
+# Compose-less discovery: synthesize a component from a Dockerfile
+# --------------------------------------------------------------------------- #
+_MIGRATION_TOKENS = ("alembic", "flyway", "liquibase", "migrate")
+
+
+def _pick_primary_dockerfile(dockerfiles: dict[str, Dockerfile]) -> str:
+    return sorted(dockerfiles, key=lambda p: (p.count("/"), p))[0]
+
+
+def _root_base_image(df: Dockerfile) -> str | None:
+    """Follow multi-stage ``FROM <alias>`` chains to the real root base image."""
+
+    by_alias = {s.alias: s for s in df.stages if s.alias}
+    stage = df.final_base_image
+    seen: set[str] = set()
+    while stage is not None and stage.image in by_alias and stage.image not in seen:
+        seen.add(stage.image)
+        stage = by_alias[stage.image]
+    return stage.image if stage is not None else None
+
+
+def _resolve_runtime_dockerfile(df: Dockerfile) -> str | None:
+    base = (_root_base_image(df) or "").lower()
+    cmd = df.last("CMD")
+    argument = cmd.argument.lower() if cmd is not None else ""
+    if base.startswith("nginx"):
+        return "Nginx (static assets)"
+    if "fastapi" in argument:
+        return "FastAPI"
+    if "uvicorn" in argument:
+        return "Uvicorn (ASGI)"
+    if "gunicorn" in argument:
+        return "Gunicorn (WSGI)"
+    if base.startswith("python"):
+        return "Python"
+    if base.startswith("node"):
+        return "Node.js"
+    return None
+
+
+def _dockerfile_port(df: Dockerfile, rel: str) -> tuple[int | None, str, list[Evidence]]:
+    for instr in df.find("EXPOSE"):
+        tokens = instr.argument.split()
+        token = tokens[0].split("/")[0] if tokens else ""
+        if token.isdigit():
+            return (
+                int(token),
+                "explicit",
+                [Evidence(path=rel, selector="EXPOSE", symbol="EXPOSE", start_line=instr.start_line, end_line=instr.end_line)],
+            )
+    for name in ("CMD", "ENTRYPOINT"):
+        instr = df.last(name)
+        if instr is None:
+            continue
+        match = re.search(r"--port[=\s]+(\d+)", instr.argument)
+        if match:
+            return (
+                int(match.group(1)),
+                "derived",
+                [Evidence(path=rel, selector=name, symbol=name, start_line=instr.start_line, end_line=instr.end_line)],
+            )
+    return None, "explicit", []
+
+
+def _analyze_dockerfile_component(
+    result: AnalysisResult, repo_name: str, dockerfiles: dict[str, Dockerfile]
+) -> None:
+    rel = _pick_primary_dockerfile(dockerfiles)
+    df = dockerfiles[rel]
+    context = rel.rsplit("/", 1)[0] if "/" in rel else ""
+    name = (context.rsplit("/", 1)[-1] if context else repo_name) or "app"
+
+    component = Component(name=name, workload_candidate="")
+    component.source_files.append(rel)
+    component.dockerfile = rel
+    component.build_context = context or "."
+
+    cmd = df.last("CMD")
+    argv = exec_form(cmd.argument) if cmd is not None else None
+    if argv is not None:
+        component.command = argv
+        component.workers = _parse_workers(argv)
+    component.runtime = _resolve_runtime_dockerfile(df)
+
+    port, confidence, port_ev = _dockerfile_port(df, rel)
+    if port is not None:
+        component.container_ports.append(port)
+        result.networking.append(
+            Finding(
+                subject=f"{name}.container_port",
+                value=port,
+                confidence=confidence,
+                kubernetes_effect=f"{name} Service targetPort candidate",
+                evidence=port_ev,
+            )
+        )
+
+    _emit_dockerfile_image(result, df, rel, component)
+
+    kind = "Deployment + ClusterIP Service"
+    component.workload_candidate = kind
+    result.workload_mappings.append(
+        WorkloadMapping(
+            component=name,
+            kubernetes_kind=kind,
+            confidence="derived",
+            rationale="Stateless application built from a Dockerfile (no compose); horizontally scalable behind a Service.",
+            evidence=[Evidence(path=rel, selector="Dockerfile", symbol="Dockerfile", start_line=1, end_line=1)],
+            unresolved=["replica count", "CPU/memory"],
+        )
+    )
+    result.components.append(component)
+
+
+def _emit_dockerfile_image(
+    result: AnalysisResult, df: Dockerfile, rel: str, component: Component
+) -> None:
+    result.container_image.append(
+        Finding(
+            subject="image.dockerfile",
+            value=rel,
+            confidence="explicit",
+            kubernetes_effect="the container image is built from this Dockerfile (build context = component dir)",
+            evidence=[Evidence(path=rel, selector="Dockerfile", symbol="Dockerfile", start_line=1, end_line=1)],
+        )
+    )
+    base = _root_base_image(df)
+    from_instrs = df.find("FROM")
+    if base and from_instrs:
+        result.container_image.append(
+            Finding(
+                subject="image.base",
+                value=base,
+                confidence="explicit",
+                kubernetes_effect="base image (informs runtime, CVE surface, non-root defaults)",
+                evidence=[Evidence(path=rel, selector="FROM", symbol="FROM", start_line=from_instrs[0].start_line, end_line=from_instrs[0].end_line)],
+            )
+        )
+    users = df.find("USER")
+    if users:
+        last_user = users[-1]
+        tokens = last_user.argument.strip().split()
+        value = tokens[0] if tokens else ""
+        if value and value.lower() not in ("root", "0"):
+            result.container_image.append(
+                Finding(
+                    subject="image.non_root",
+                    value=value,
+                    confidence="explicit",
+                    kubernetes_effect="image runs as a non-root user; aligns with runAsNonRoot securityContext",
+                    evidence=[Evidence(path=rel, selector="USER", symbol="USER", start_line=last_user.start_line, end_line=last_user.end_line)],
+                )
+            )
+    aliases = [s.alias for s in df.stages if s.alias]
+    if len(aliases) > 1:
+        result.container_image.append(
+            Finding(
+                subject="image.build_targets",
+                value=aliases,
+                confidence="explicit",
+                kubernetes_effect="multi-stage Dockerfile; the deployable image is the final target (build a specific stage with --target)",
+                evidence=[Evidence(path=rel, selector="Dockerfile", symbol="stages", start_line=df.stages[0].start_line, end_line=df.stages[-1].start_line)],
+            )
+        )
+    for instr in df.find("CMD"):
+        if any(token in instr.argument.lower() for token in _MIGRATION_TOKENS):
+            result.container_image.append(
+                Finding(
+                    subject="image.migration_target",
+                    value=instr.argument.strip(),
+                    confidence="derived",
+                    kubernetes_effect="a build stage runs DB migrations; deploy it as a pre-deploy Job/initContainer, not as the app",
+                    evidence=[Evidence(path=rel, selector="CMD", symbol="CMD", start_line=instr.start_line, end_line=instr.end_line)],
+                )
+            )
+            break
+
+
+def _emit_alembic_init(result: AnalysisResult, inventory: Inventory) -> None:
+    for rel in inventory.alembic_files:
+        result.startup_order.append(
+            Finding(
+                subject="startup.migration",
+                value="Alembic migrations (alembic upgrade head)",
+                confidence="derived",
+                kubernetes_effect="run as a pre-deploy Job or initContainer before the app starts; not the app's long-running process",
+                evidence=[Evidence(path=rel, selector="alembic", symbol="alembic.ini", start_line=1, end_line=1)],
+            )
+        )
+
+
+# --------------------------------------------------------------------------- #
 # Cross-cutting analysis
 # --------------------------------------------------------------------------- #
 def _analyze_config_and_secrets(result: AnalysisResult, dotenvs: dict[str, DotenvFile]) -> None:
@@ -890,6 +1090,14 @@ def _warn_extra_compose(result: AnalysisResult, inventory: Inventory) -> None:
                 code="compose_override_not_merged",
                 message="additional compose file detected but NOT merged in kubernetes-p0; analysis is based on the primary compose file",
                 path=extra,
+            )
+        )
+    for ignored in inventory.compose_ignored:
+        result.warnings.append(
+            Warning(
+                code="compose_non_deployment_path",
+                message="compose file under a documentation/examples/test path is treated as a demo/sample, NOT the deployment topology; its services are not workloads",
+                path=ignored,
             )
         )
 

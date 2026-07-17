@@ -48,6 +48,7 @@ class Inventory:
     root: Path
     compose_primary: str | None = None
     compose_extra: list[str] = field(default_factory=list)
+    compose_ignored: list[str] = field(default_factory=list)
     dockerfiles: list[str] = field(default_factory=list)
     dotenv_files: list[str] = field(default_factory=list)
     nginx_files: list[str] = field(default_factory=list)
@@ -73,6 +74,34 @@ def _is_compose(name: str) -> bool:
     return (lower.startswith("compose") or lower.startswith("docker-compose")) and lower.endswith(
         (".yml", ".yaml")
     )
+
+
+# Directory names that mark a compose file as a demo/sample/test rather than the
+# repository's deployment topology (kafka-ui ships its only compose under
+# `documentation/`). Matched as exact path segments, not substrings.
+_NON_DEPLOYMENT_DIRS = {
+    "documentation",
+    "docs",
+    "doc",
+    "example",
+    "examples",
+    "sample",
+    "samples",
+    "demo",
+    "demos",
+    "e2e",
+    "testing",
+    "test",
+    "tests",
+    "contrib",
+}
+
+
+def _is_nondeployment_compose(rel: str) -> bool:
+    """True if a compose file lives under a documentation/examples/test path."""
+
+    dirs = rel.split("/")[:-1]
+    return any(part.lower() in _NON_DEPLOYMENT_DIRS for part in dirs)
 
 
 def _is_dockerfile(name: str) -> bool:
@@ -184,8 +213,10 @@ def build_inventory(root: Path) -> Inventory:
         if name != "web.xml" and _is_spring_xml_candidate(rel, name):
             inv.spring_xml_files.append(rel)
 
-    inv.compose_primary = _pick_primary_compose(compose_candidates)
-    inv.compose_extra = sorted(c for c in compose_candidates if c != inv.compose_primary)
+    deployment_composes = [c for c in compose_candidates if not _is_nondeployment_compose(c)]
+    inv.compose_ignored = sorted(c for c in compose_candidates if _is_nondeployment_compose(c))
+    inv.compose_primary = _pick_primary_compose(deployment_composes)
+    inv.compose_extra = sorted(c for c in deployment_composes if c != inv.compose_primary)
 
     inv.detected = _build_detected(inv, compose_candidates)
     return inv
@@ -204,7 +235,12 @@ def _pick_primary_compose(candidates: list[str]) -> str | None:
 def _build_detected(inv: Inventory, compose_candidates: list[str]) -> list[DetectedFile]:
     detected: list[DetectedFile] = []
     for rel in compose_candidates:
-        kind = "compose" if rel == inv.compose_primary else "compose-additional"
+        if rel == inv.compose_primary:
+            kind = "compose"
+        elif rel in inv.compose_ignored:
+            kind = "compose-ignored"
+        else:
+            kind = "compose-additional"
         detected.append(DetectedFile(path=rel, kind=kind))
     detected += [DetectedFile(path=p, kind="dockerfile") for p in inv.dockerfiles]
     detected += [DetectedFile(path=p, kind="dotenv") for p in inv.dotenv_files]

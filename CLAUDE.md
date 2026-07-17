@@ -49,7 +49,10 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
 
 - `src/repo_analyzer/inventory.py` — discover P0-relevant files by name/pattern
   (no content parsing). Picks the primary compose file; extra compose files are
-  detected but **not merged** (warning emitted). Also detects `pom.xml`,
+  detected but **not merged** (warning emitted). Compose files under a
+  `documentation`/`docs`/`examples`/`demo`/`test` path are classified as
+  **non-deployment** (`compose_ignored`) — a demo/sample, never the topology.
+  Also detects `pom.xml`,
   `build.gradle`(`.kts`) + `settings.gradle` + `gradle-wrapper.properties`,
   `application*.properties` and `application*.yml`, schema/data `.sql`,
   `web.xml`, Spring-context XML candidates, README, and build wrappers
@@ -72,7 +75,10 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   the build system via `rules/build_system.py` (lists all, records the choice +
   override), then delegates to `rules/spring_boot.py:analyze_spring_boot` (Gradle)
   or `rules/java_webapp.py:analyze_java_webapp` (Maven) — both pure; enrich the
-  matching component or synthesize one without compose. Both consume the parsed
+  matching component or synthesize one without compose. When there is no
+  deployment compose and no Java build system but a Dockerfile exists, it
+  synthesizes a component from the primary Dockerfile (runtime, EXPOSE/`--port`,
+  non-root USER, multi-stage targets/migration stage) + dotenv config/secrets. Both consume the parsed
   Spring `application*` config (`.properties` + `.yml`) for the default 8080 port,
   per-profile datasources, and ConfigMap/Secret candidates (test scopes excluded).
 - `src/repo_analyzer/models.py` — Pydantic v2 schema; field order is intentional
@@ -117,7 +123,7 @@ The library signature is
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 148 tests, fully offline
+uv run pytest                             # 152 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \

@@ -24,7 +24,13 @@ from the repository.
 Three stack families are covered today:
 
 - **Container/compose stacks** (e.g. FastAPI + Postgres + Nginx): compose
-  services, Dockerfiles, dotenv, Nginx, Python settings.
+  services, Dockerfiles, dotenv, Nginx, Python settings. When there is **no
+  deployment compose**, a component is still synthesized from the primary
+  Dockerfile (runtime, `EXPOSE`/`--port`, non-root `USER`, multi-stage targets,
+  migration stage) plus dotenv config/Secret candidates. Compose files under a
+  `documentation/`, `examples/`, `demo/` or `test/` path are treated as
+  demos/samples — **not** the deployment topology — and their services never
+  become workloads.
 - **Maven / Java web applications** (e.g. a WAR on an external servlet
   container): `pom.xml` (packaging, finalName, Java version, dependencies with
   scope, per-profile application servers), `web.xml` (servlets, listeners,
