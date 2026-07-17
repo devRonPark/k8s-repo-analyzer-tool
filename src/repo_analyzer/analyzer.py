@@ -24,6 +24,7 @@ from .parsers.maven import MavenProject, parse_maven
 from .parsers.nginx import NginxConfig, parse_nginx
 from .parsers.python_settings import PythonSettings, parse_python_settings
 from .parsers.spring_properties import SpringProperties, parse_spring_properties
+from .parsers.spring_yaml import parse_spring_yaml
 from .parsers.spring_xml import SpringContext, parse_spring_xml
 from .parsers.sql_init import SqlInitScript, parse_sql_init
 from .parsers.webxml import WebApp, parse_webxml
@@ -119,6 +120,11 @@ def analyze_repository(
     spring_props: dict[str, SpringProperties] = {
         rel: parse_spring_properties(_read(root, rel), rel) for rel in inventory.spring_property_files
     }
+    # application*.yml/.yaml is parsed into the SAME SpringProperties model so the
+    # Spring/Java rules consume both formats identically.
+    spring_props.update(
+        {rel: parse_spring_yaml(_read(root, rel), rel) for rel in inventory.spring_yaml_files}
+    )
     sql_inits: dict[str, SqlInitScript] = {
         rel: parse_sql_init(_read(root, rel), rel) for rel in inventory.sql_init_files
     }

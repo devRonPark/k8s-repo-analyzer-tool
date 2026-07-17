@@ -33,13 +33,16 @@ Three stack families are covered today:
   Maven-profile alternatives, the non-root HTTP **context path**, embedded
   (ephemeral) datastores, image-build risks (runtime server download, PID-1
   signal handling, root user), and Dockerfile↔README↔POM cross-checks
-  (undefined run profile, JDK version mismatch).
+  (undefined run profile, JDK version mismatch). Spring `application*.yml`/
+  `.properties` (test scopes excluded) also contribute the default **8080** port,
+  per-profile datasources (external DB vs embedded), and datasource/JWT/keystore
+  env classified into **ConfigMap (URL) vs Secret (credentials)** candidates.
 - **Spring Boot / Gradle applications** (e.g. spring-petclinic): `build.gradle`
   (applied plugins with versions, Java toolchain, dependencies with
   configuration), `settings.gradle` (project name → artifact name),
   `gradle-wrapper.properties` (pinned Gradle version), and
-  `application*.properties` (default vs per-profile datasources, SQL init,
-  Actuator). This surfaces the **selected build system** (when both Maven and
+  `application*.properties`/`application*.yml` (default vs per-profile
+  datasources, SQL init, Actuator). This surfaces the **selected build system** (when both Maven and
   Gradle are present it lists both, records the choice, and how to switch — never
   "the first `pom.xml`"), the **executable Spring Boot JAR** (`bootJar` vs a plain
   `jar`, `build/libs/*.jar`, `java -jar`), the default **8080** port, the

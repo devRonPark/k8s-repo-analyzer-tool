@@ -20,6 +20,7 @@ SKIP_DIRS = {
     "__pycache__",
     "dist",
     "build",
+    "target",
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",

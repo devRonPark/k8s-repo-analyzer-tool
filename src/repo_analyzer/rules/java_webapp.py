@@ -32,6 +32,7 @@ from ..parsers.common import Located
 from ..parsers.compose import ComposeFile
 from ..parsers.dockerfile import Dockerfile, exec_form
 from ..parsers.maven import MavenProfile, MavenProject
+from ..parsers.spring_properties import SpringProperties, SpringProperty
 from ..parsers.spring_xml import SpringContext
 from ..parsers.webxml import WebApp
 
@@ -103,6 +104,10 @@ def _ev_range(
     )
 
 
+def _prop_ev(prop: SpringProperty, path: str) -> Evidence:
+    return Evidence(path=path, selector=prop.key, symbol="property", start_line=prop.line, end_line=prop.line)
+
+
 def _dirname(rel: str) -> str:
     return rel.rsplit("/", 1)[0] if "/" in rel else ""
 
@@ -127,6 +132,7 @@ def analyze_java_webapp(
     mavens: dict[str, MavenProject],
     webapps: dict[str, WebApp],
     springs: dict[str, SpringContext],
+    spring_props: dict[str, SpringProperties],
     readmes: dict[str, list[str]],
 ) -> None:
     pom_rel = _primary_pom(mavens)
@@ -149,6 +155,9 @@ def analyze_java_webapp(
     for spath in springs:
         if spath not in component.source_files:
             component.source_files.append(spath)
+    for cpath in spring_props:
+        if cpath not in component.source_files:
+            component.source_files.append(cpath)
     for rpath in readmes:
         if rpath not in component.source_files:
             component.source_files.append(rpath)
@@ -186,6 +195,7 @@ def analyze_java_webapp(
     _emit_start_command(result, component, dockerfile_rel, dockerfile, maven, readmes)
     _emit_context_and_routes(result, component, pom_rel, maven, webapp, readmes)
     _emit_datastores(result, component, springs, maven)
+    _emit_spring_config_facts(result, component, maven, spring_props)
     _emit_image_findings(result, component, dockerfile_rel, dockerfile, maven)
     _emit_workload(result, component, pom_rel, maven, needs_external, app_server, compose_path, dockerfile_rel)
     _emit_java_unresolved(result, springs)
@@ -638,6 +648,221 @@ def _emit_datastores(
                         )
                     )
                 break
+
+
+# --------------------------------------------------------------------------- #
+# Spring application*.yml / .properties config facts (Maven path)
+# --------------------------------------------------------------------------- #
+_SPRING_DEFAULT_PORT = 8080
+
+# JDBC vendor token -> (label, is_external_by_default).
+_JDBC_VENDORS: tuple[tuple[str, str, bool], ...] = (
+    ("postgresql", "PostgreSQL", True),
+    ("mysql", "MySQL", True),
+    ("mariadb", "MariaDB", True),
+    ("oracle", "Oracle", True),
+    ("sqlserver", "SQL Server", True),
+    ("h2", "H2", False),
+    ("hsqldb", "HSQLDB", False),
+    ("derby", "Derby", False),
+)
+
+# Flattened key substrings that mark a value as a credential (Secret candidate).
+# Kept precise: broad words like "credential(s)" would wrongly flag booleans such
+# as CORS ``allow-credentials``.
+_SECRET_KEY_HINTS: tuple[str, ...] = (
+    "password",
+    "secret",
+    "private-key",
+    "access-key",
+)
+
+
+def _is_test_config(path: str) -> bool:
+    """Exclude test-scoped Spring config from deployment analysis."""
+
+    parts = path.split("/")
+    return "test" in parts or "src/test" in path
+
+
+def _spring_env_name(key: str) -> str:
+    """Spring Boot relaxed-binding env var for a property key (a standard mapping)."""
+
+    return key.upper().replace(".", "_").replace("-", "_")
+
+
+def _db_from_url(url: str) -> tuple[str, bool]:
+    low = url.lower()
+    for token, label, external in _JDBC_VENDORS:
+        if f"jdbc:{token}" in low or f":{token}:" in low:
+            if token == "h2":
+                # h2:tcp is a remote server; mem/file are in-process.
+                return label, "h2:tcp" in low
+            return label, external
+    return "SQL database", True
+
+
+def _add_spring_config(
+    result: AnalysisResult, component: Component, env: str, entry: SpringProperty, path: str, tag: str
+) -> None:
+    if env not in component.environment:
+        component.environment.append(env)
+    result.configuration.append(
+        Finding(
+            subject=f"config.{env}",
+            value=f"{entry.key} ({tag} profile)",
+            confidence="derived",
+            kubernetes_effect=f"ConfigMap key candidate (non-secret connection detail); Spring env var {env}",
+            evidence=[_prop_ev(entry, path)],
+        )
+    )
+
+
+def _add_spring_secret(
+    result: AnalysisResult, component: Component, env: str, entry: SpringProperty, path: str, tag: str
+) -> None:
+    if env in component.secret_candidates:
+        return
+    component.secret_candidates.append(env)
+    if env not in component.environment:
+        component.environment.append(env)
+    result.secrets.append(
+        Finding(
+            subject=f"secret.{env}",
+            value="<redacted>",
+            confidence="derived",
+            kubernetes_effect=f"Kubernetes Secret key candidate ({entry.key}, {tag} profile); Spring env var {env}",
+            evidence=[_prop_ev(entry, path)],
+        )
+    )
+
+
+def _emit_spring_port(
+    result: AnalysisResult,
+    component: Component,
+    maven: MavenProject,
+    ordered: list[SpringProperties],
+    is_spring_boot: bool,
+) -> None:
+    for props in ordered:
+        entry = props.get("server.port")
+        if entry is not None and entry.value and entry.value.isdigit():
+            port = int(entry.value)
+            component.container_ports = [port]
+            result.networking.append(
+                Finding(
+                    subject="app.server_port",
+                    value=port,
+                    confidence="explicit",
+                    kubernetes_effect="containerPort and Service targetPort",
+                    evidence=[_prop_ev(entry, props.path)],
+                )
+            )
+            return
+    if not is_spring_boot or component.container_ports:
+        return
+    evidence: list[Evidence] = []
+    for dep in maven.dependencies:
+        if dep.scope == "test":
+            continue
+        if dep.group_id.startswith("org.springframework.boot"):
+            evidence = [_ev(dep.location, maven.path, "dependency")]
+            break
+    component.container_ports = [_SPRING_DEFAULT_PORT]
+    result.networking.append(
+        Finding(
+            subject="app.default_port",
+            value=_SPRING_DEFAULT_PORT,
+            confidence="derived",
+            kubernetes_effect=(
+                "no server.port is set, so Spring Boot's embedded server listens on 8080. "
+                "Service targetPort=8080, containerPort=8080."
+            ),
+            evidence=evidence,
+        )
+    )
+
+
+def _emit_spring_datasource(result: AnalysisResult, component: Component, props: SpringProperties) -> None:
+    url = props.get("spring.datasource.url")
+    user = props.get("spring.datasource.username")
+    pwd = props.get("spring.datasource.password")
+    tag = props.profile or "default"
+    if url is not None and url.value:
+        label, external = _db_from_url(url.value)
+        if external:
+            dep = f"External {label} ({tag} profile)"
+            summary = f"External {label}"
+            effect = (
+                f"'{tag}' profile connects to an external {label}. Provide the JDBC URL via ConfigMap and "
+                "credentials via Secret; ensure network reachability from the cluster."
+            )
+            confidence = "explicit"
+        else:
+            dep = f"Embedded {label} ({tag} profile, in-process)"
+            summary = f"Embedded {label} (in-process)"
+            effect = (
+                f"'{tag}' profile uses an in-process {label}. Data is ephemeral and per-replica (dev/demo only); "
+                "externalise the DB before scaling past 1 replica or needing durability."
+            )
+            confidence = "derived"
+        if dep not in component.runtime_dependencies:
+            component.runtime_dependencies.append(dep)
+        result.runtime_dependencies.append(
+            Finding(
+                subject=f"database.{tag}",
+                value=summary,
+                confidence=confidence,
+                kubernetes_effect=effect,
+                evidence=[_prop_ev(url, props.path)],
+            )
+        )
+        env = url.placeholders[0].name if url.placeholders else _spring_env_name(url.key)
+        _add_spring_config(result, component, env, url, props.path, tag)
+    for entry in (user, pwd):
+        if entry is None:
+            continue
+        env = entry.placeholders[0].name if entry.placeholders else _spring_env_name(entry.key)
+        _add_spring_secret(result, component, env, entry, props.path, tag)
+
+
+def _emit_spring_secrets(
+    result: AnalysisResult, component: Component, ordered: list[SpringProperties]
+) -> None:
+    for props in ordered:
+        tag = props.profile or "default"
+        for entry in props.entries:
+            key = entry.key.lower()
+            if any(hint in key for hint in _SECRET_KEY_HINTS):
+                env = entry.placeholders[0].name if entry.placeholders else _spring_env_name(entry.key)
+                _add_spring_secret(result, component, env, entry, props.path, tag)
+
+
+def _emit_spring_config_facts(
+    result: AnalysisResult,
+    component: Component,
+    maven: MavenProject,
+    spring_props: dict[str, SpringProperties],
+) -> None:
+    """Derive port, datasource dependency, and ConfigMap/Secret candidates from
+    Spring ``application*.yml``/``.properties`` on the Maven path. Test-scoped
+    config is excluded; the analysis never invents values (env-var names use the
+    standard Spring relaxed-binding mapping, cited to the source property)."""
+
+    usable = {rel: p for rel, p in spring_props.items() if not _is_test_config(rel)}
+    if not usable:
+        return
+    default_props = next((p for p in usable.values() if p.profile is None), None)
+    profile_props = sorted(
+        (p for p in usable.values() if p.profile is not None), key=lambda p: p.profile or ""
+    )
+    ordered = ([default_props] if default_props is not None else []) + profile_props
+
+    is_spring_boot = maven.has_dependency("org.springframework.boot")
+    _emit_spring_port(result, component, maven, ordered, is_spring_boot)
+    for props in ordered:
+        _emit_spring_datasource(result, component, props)
+    _emit_spring_secrets(result, component, ordered)
 
 
 def _emit_image_findings(

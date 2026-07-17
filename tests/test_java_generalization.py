@@ -10,6 +10,25 @@ from __future__ import annotations
 
 from repo_analyzer.analyzer import analyze_repository
 
+_BOOT_POM = """<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>svc</artifactId>
+  <version>0.0.1</version>
+  <packaging>jar</packaging>
+  <properties><java.version>21</java.version></properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.3.0</version>
+    </dependency>
+  </dependencies>
+  <build><finalName>svc</finalName></build>
+</project>
+"""
+
 _WAR_POM = """<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
@@ -51,6 +70,69 @@ def test_implicit_dockerfile_and_published_port(tmp_path):
     assert api.container_ports == [8080]
     port = next(f for f in result.networking if f.subject == "api.container_port")
     assert port.evidence[0].symbol == "ports.published"
+
+
+def test_maven_spring_boot_consumes_application_yaml(tmp_path):
+    res = tmp_path / "src" / "main" / "resources"
+    res.mkdir(parents=True)
+    (tmp_path / "pom.xml").write_text(_BOOT_POM)
+    (tmp_path / "Dockerfile").write_text(
+        'FROM eclipse-temurin:21-jre\nCOPY target/svc.jar /app.jar\nCMD ["java","-jar","/app.jar"]\n'
+    )
+    (res / "application.yml").write_text(
+        "management:\n"
+        "  endpoints:\n"
+        "    web:\n"
+        "      exposure:\n"
+        "        include: health,info\n"
+        "cors:\n"
+        "  allow-credentials: true\n"
+        "jhipster:\n"
+        "  security:\n"
+        "    authentication:\n"
+        "      jwt:\n"
+        "        base64-secret: c2VjcmV0\n"
+    )
+    (res / "application-prod.yml").write_text(
+        "spring:\n"
+        "  datasource:\n"
+        "    url: jdbc:postgresql://db:5432/app\n"
+        "    username: appuser\n"
+        "    password:\n"
+    )
+    # Test-scoped config MUST be excluded from deployment analysis.
+    test_res = tmp_path / "src" / "test" / "resources"
+    test_res.mkdir(parents=True)
+    (test_res / "application.yml").write_text(
+        "spring:\n  datasource:\n    url: jdbc:h2:mem:testdb\n    password: testpw\n"
+    )
+    # Build output (target/) is a COPY of resources; must be ignored (determinism:
+    # analysis must not depend on whether the repo was built).
+    built = tmp_path / "target" / "classes"
+    built.mkdir(parents=True)
+    (built / "application-prod.yml").write_text((res / "application-prod.yml").read_text())
+
+    result = analyze_repository(str(tmp_path))
+    svc = next(c for c in result.components if (c.language or "").startswith("Java"))
+    # No server.port -> Spring Boot embedded default 8080 (derived).
+    assert svc.container_ports == [8080]
+    assert any(f.subject == "app.default_port" and f.value == 8080 for f in result.networking)
+    # External PostgreSQL from the prod-profile datasource URL, emitted exactly ONCE
+    # (build-output copy under target/ is ignored -> no duplication).
+    prod_dbs = [f for f in result.runtime_dependencies if f.subject == "database.prod"]
+    assert len(prod_dbs) == 1 and "PostgreSQL" in prod_dbs[0].value
+    # Datasource credentials + JWT secret -> Secret candidates (standard Spring env mapping).
+    assert "SPRING_DATASOURCE_PASSWORD" in svc.secret_candidates
+    assert "JHIPSTER_SECURITY_AUTHENTICATION_JWT_BASE64_SECRET" in svc.secret_candidates
+    # URL -> ConfigMap candidate, NOT a Secret.
+    assert "SPRING_DATASOURCE_URL" in svc.environment
+    assert "SPRING_DATASOURCE_URL" not in svc.secret_candidates
+    # A boolean CORS flag must NOT be mistaken for a secret.
+    assert not any("CREDENTIALS" in s for s in svc.secret_candidates)
+    # Test config excluded: no H2 leaked as a dependency.
+    assert not any("H2" in (f.value or "") for f in result.runtime_dependencies)
+    # YAML is parsed now, never flagged wholesale-unsupported.
+    assert not any(u.construct_type == "spring_yaml_config" for u in result.unsupported_constructs)
 
 
 def test_maven_war_without_compose(tmp_path):

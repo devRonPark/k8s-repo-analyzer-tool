@@ -202,7 +202,7 @@ def analyze_kubernetes_p0(
     )
 
     _collect_unsupported(result, compose, dockerfiles, dotenvs, nginx, settings)
-    _collect_spring_unsupported(result, gradles, spring_props, inventory)
+    _collect_spring_unsupported(result, gradles, spring_props)
     _register_spring_detected(result, springs)
     _warn_extra_compose(result, inventory)
 
@@ -261,6 +261,7 @@ def analyze_kubernetes_p0(
                 mavens=mavens,
                 webapps=webapps,
                 springs=springs,
+                spring_props=spring_props,
                 readmes=readmes,
             )
 
@@ -866,27 +867,19 @@ def _collect_spring_unsupported(
     result: AnalysisResult,
     gradles: dict[str, GradleBuild],
     spring_props: dict[str, SpringProperties],
-    inventory: Inventory,
 ) -> None:
     for build in gradles.values():
         for issue in build.issues:
             result.unsupported_constructs.append(
                 UnsupportedConstruct(path=build.path, construct_type=issue.construct, detail=issue.detail)
             )
+    # application*.properties AND application*.yml are parsed; any construct a parser
+    # could not handle is surfaced via its own issues (never silently dropped).
     for props in spring_props.values():
         for issue in props.issues:
             result.unsupported_constructs.append(
                 UnsupportedConstruct(path=props.path, construct_type=issue.construct, detail=issue.detail)
             )
-    # application.yml/.yaml is detected but not parsed structurally: flag it.
-    for yaml_path in inventory.spring_yaml_files:
-        result.unsupported_constructs.append(
-            UnsupportedConstruct(
-                path=yaml_path,
-                construct_type="spring_yaml_config",
-                detail="YAML Spring config is not parsed; properties/profiles from this file are not analyzed",
-            )
-        )
     result.unsupported_constructs.sort(key=lambda u: (u.path, u.construct_type, u.detail))
 
 

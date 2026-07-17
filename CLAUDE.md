@@ -51,9 +51,10 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   (no content parsing). Picks the primary compose file; extra compose files are
   detected but **not merged** (warning emitted). Also detects `pom.xml`,
   `build.gradle`(`.kts`) + `settings.gradle` + `gradle-wrapper.properties`,
-  `application*.properties` (and flags `application*.yml`), schema/data `.sql`,
+  `application*.properties` and `application*.yml`, schema/data `.sql`,
   `web.xml`, Spring-context XML candidates, README, and build wrappers
-  (`mvnw`/`gradlew`). Skips `.devcontainer` (dev tooling, not the app image).
+  (`mvnw`/`gradlew`). Skips `.devcontainer` and build output (`target`/`build`/
+  `dist`) so results never depend on whether the repo was built.
 - `src/repo_analyzer/parsers/` — one module per format, each preserving source
   line ranges via `common.Located`:
   `compose.py` (ruamel.yaml, line-preserving), `dockerfile.py` (instruction-level,
@@ -62,15 +63,18 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   `xml_source.py` (line-preserving SAX XML tree), `maven.py`, `webxml.py`,
   `spring_xml.py`; for Gradle/Spring Boot: `gradle.py` (build.gradle plugins/deps/
   toolchain via brace-block parsing; settings + wrapper), `spring_properties.py`
-  (application*.properties + `${ENV:default}` placeholders), `sql_init.py`
-  (schema idempotency markers).
+  (application*.properties + `${ENV:default}` placeholders), `spring_yaml.py`
+  (application*.yml → flattened dot-keys into the same `SpringProperties` model,
+  line-preserving via ruamel), `sql_init.py` (schema idempotency markers).
 - `src/repo_analyzer/rules/kubernetes_p0.py` — **pure function**: parsed facts in,
   `AnalysisResult` out. The only place explicit facts become derived conclusions
   and unknowns become `unresolved`. No I/O here. Runs the compose path, resolves
   the build system via `rules/build_system.py` (lists all, records the choice +
   override), then delegates to `rules/spring_boot.py:analyze_spring_boot` (Gradle)
   or `rules/java_webapp.py:analyze_java_webapp` (Maven) — both pure; enrich the
-  matching component or synthesize one without compose.
+  matching component or synthesize one without compose. Both consume the parsed
+  Spring `application*` config (`.properties` + `.yml`) for the default 8080 port,
+  per-profile datasources, and ConfigMap/Secret candidates (test scopes excluded).
 - `src/repo_analyzer/models.py` — Pydantic v2 schema; field order is intentional
   (fixes JSON key order). `extra="forbid"`.
 - `src/repo_analyzer/reporters/` — `json_reporter.py` (canonical bytes),
@@ -113,7 +117,7 @@ The library signature is
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 138 tests, fully offline
+uv run pytest                             # 148 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \
