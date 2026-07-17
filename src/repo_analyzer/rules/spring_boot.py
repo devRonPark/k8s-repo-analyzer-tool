@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 
-from ..inventory import Inventory
+from ..inventory import Inventory, is_non_deployment_path
 from ..models import (
     AnalysisResult,
     Component,
@@ -101,18 +101,24 @@ def analyze_spring_boot(
 
     default_props = _default_properties(spring_props)
     profile_props = _profile_properties(spring_props)
+    # SQL-init scripts under documentation/examples/demo paths are samples, not the
+    # deployable app's schema (e.g. kafka-ui's documentation/compose/postgres/data.sql).
+    sql_inits = {p: s for p, s in sql_inits.items() if not is_non_deployment_path(p)}
+    has_db = _has_db_evidence(gradle, default_props, profile_props, sql_inits)
 
     _fill_source_files(component, gradle, gradle_path, inventory, spring_props, sql_inits, readmes)
     _emit_build_system_stack(result, component, gradle, gradle_path, inventory)
     _emit_artifact_and_run(result, component, gradle, gradle_path, inventory)
     _emit_port(result, component, gradle, gradle_path, spring_props, readmes)
-    _emit_profiles_and_datasources(result, component, default_props, profile_props, gradle, gradle_path)
-    _emit_sql_init(result, default_props, profile_props, sql_inits, gradle, gradle_path)
+    _emit_profiles_and_datasources(
+        result, component, default_props, profile_props, gradle, gradle_path, has_db
+    )
+    _emit_sql_init(result, default_props, profile_props, sql_inits, gradle, gradle_path, has_db)
     _emit_actuator_and_probes(result, gradle, gradle_path, default_props)
     _emit_image_build(result, component, gradle, gradle_path, dockerfiles, inventory)
     _emit_storage_pvc(result, component, gradle_path)
     _emit_workload(result, component, gradle_path)
-    _emit_unresolved(result, gradle, gradle_path, profile_props)
+    _emit_unresolved(result, gradle, gradle_path, profile_props, has_db, _component_name(gradle))
 
     component.source_files.sort()
     component.environment = sorted(set(component.environment))
@@ -162,6 +168,32 @@ def _starter_frameworks(gradle: GradleBuild) -> list[tuple[str, Evidence]]:
                 labels.append((label, _ev_loc(dep.location, gradle.path, "dependency")))
                 break
     return labels
+
+
+def _has_db_evidence(
+    gradle: GradleBuild,
+    default_props: SpringProperties | None,
+    profile_props: list[SpringProperties],
+    sql_inits: dict[str, SqlInitScript],
+) -> bool:
+    """True only if the repo actually has a relational database: a JDBC driver, a
+    JPA/JDBC starter, a datasource/`database` property, or SQL-init scripts. Guards
+    against inventing an H2/Postgres/MySQL story for DB-less apps (e.g. kafka-ui)."""
+
+    if _db_drivers(gradle):
+        return True
+    for artifact in ("starter-data-jpa", "starter-jdbc", "starter-data-jdbc", "starter-data-r2dbc"):
+        if gradle.has_dependency("org.springframework.boot", artifact):
+            return True
+    for props in ([default_props] if default_props is not None else []) + profile_props:
+        if (
+            props.get("spring.datasource.url") is not None
+            or props.get("database") is not None
+            or props.get("spring.sql.init.schema-locations") is not None
+            or props.get("spring.sql.init.data-locations") is not None
+        ):
+            return True
+    return bool(sql_inits)
 
 
 def _db_drivers(gradle: GradleBuild) -> list[tuple[str, GradleBuild, Evidence]]:
@@ -433,6 +465,7 @@ def _emit_profiles_and_datasources(
     profile_props: list[SpringProperties],
     gradle: GradleBuild,
     gradle_path: str,
+    has_db: bool,
 ) -> None:
     # Default database (embedded H2) — never recommended for production.
     if default_props is not None:
@@ -453,21 +486,23 @@ def _emit_profiles_and_datasources(
                 )
             )
 
-    # SPRING_PROFILES_ACTIVE selects the runtime database.
-    result.configuration.append(
-        Finding(
-            subject="config.SPRING_PROFILES_ACTIVE",
-            value="(unset → default/h2)",
-            confidence="derived",
-            kubernetes_effect=(
-                "ConfigMap/env key. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch to an "
-                "external database; unset means the embedded H2 default."
-            ),
-            evidence=_profile_evidence(profile_props),
+    # SPRING_PROFILES_ACTIVE selects the runtime database — only meaningful when
+    # the repo actually has a database (never invent an H2/Postgres/MySQL story).
+    if has_db:
+        result.configuration.append(
+            Finding(
+                subject="config.SPRING_PROFILES_ACTIVE",
+                value="(unset → default/h2)",
+                confidence="derived",
+                kubernetes_effect=(
+                    "ConfigMap/env key. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch to an "
+                    "external database; unset means the embedded H2 default."
+                ),
+                evidence=_profile_evidence(profile_props),
+            )
         )
-    )
-    if "SPRING_PROFILES_ACTIVE" not in component.environment:
-        component.environment.append("SPRING_PROFILES_ACTIVE")
+        if "SPRING_PROFILES_ACTIVE" not in component.environment:
+            component.environment.append("SPRING_PROFILES_ACTIVE")
 
     # Per-profile external datasource + required env classification.
     for props in profile_props:
@@ -550,6 +585,7 @@ def _emit_sql_init(
     sql_inits: dict[str, SqlInitScript],
     gradle: GradleBuild,
     gradle_path: str,
+    has_db: bool,
 ) -> None:
     if default_props is not None:
         schema = default_props.get("spring.sql.init.schema-locations")
@@ -569,9 +605,10 @@ def _emit_sql_init(
                 )
             )
 
-    # Distinguish Spring SQL init from Flyway/Liquibase (absence of those deps).
+    # Distinguish Spring SQL init from Flyway/Liquibase — but only when the repo
+    # actually has a database (a DB-less app has no migration story to describe).
     has_migration_tool = gradle.has_dependency("org.flywaydb") or gradle.has_dependency("org.liquibase")
-    if not has_migration_tool:
+    if has_db and not has_migration_tool:
         result.startup_order.append(
             Finding(
                 subject="startup.migration_tool",
@@ -860,24 +897,30 @@ def _emit_unresolved(
     gradle: GradleBuild,
     gradle_path: str,
     profile_props: list[SpringProperties],
+    has_db: bool,
+    app_name: str,
 ) -> None:
     profiles = sorted(p.profile for p in profile_props if p.profile)
     existing = {u.subject for u in result.unresolved_operational_inputs}
-    additions = [
-        Unresolved(
-            subject="production_database_selection",
-            reason=(
-                "the repo supports an embedded H2 default plus external "
-                + (", ".join(profiles) if profiles else "database")
-                + " profiles; which one to run in production is not decided by the repository"
-            ),
-            needed_input="choose a profile (e.g. postgres or mysql) and supply the JDBC URL + credentials",
-            kubernetes_effect="SPRING_PROFILES_ACTIVE (ConfigMap) + datasource ConfigMap/Secret; external DB Service",
-        ),
+    additions: list[Unresolved] = []
+    if has_db:
+        additions.append(
+            Unresolved(
+                subject="production_database_selection",
+                reason=(
+                    "the repo supports an embedded H2 default plus external "
+                    + (", ".join(profiles) if profiles else "database")
+                    + " profiles; which one to run in production is not decided by the repository"
+                ),
+                needed_input="choose a profile (e.g. postgres or mysql) and supply the JDBC URL + credentials",
+                kubernetes_effect="SPRING_PROFILES_ACTIVE (ConfigMap) + datasource ConfigMap/Secret; external DB Service",
+            )
+        )
+    additions += [
         Unresolved(
             subject="container_image_name",
             reason="bootBuildImage's image name/registry is not pinned in the repo",
-            needed_input="target image coordinates, e.g. registry/namespace/spring-petclinic:<tag>",
+            needed_input=f"target image coordinates, e.g. registry/namespace/{app_name}:<tag>",
             kubernetes_effect="Deployment.spec.template.spec.containers[].image",
         ),
         Unresolved(

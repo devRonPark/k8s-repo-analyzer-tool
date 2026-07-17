@@ -161,6 +161,20 @@ def _published_container_port(ports: list[Located]) -> tuple[int, Located] | Non
     return None
 
 
+def _select_gradle_module(gradles: dict[str, GradleBuild]) -> str:
+    """Pick the deployable Gradle module: the one applying the Spring Boot plugin
+    (multi-module repos keep the app in a submodule, e.g. ``api/``, not root),
+    else the shortest-path build script."""
+
+    boot_modules = [
+        path
+        for path, build in gradles.items()
+        if any(pl.id.startswith("org.springframework.boot") for pl in build.plugins)
+    ]
+    pool = boot_modules or list(gradles)
+    return sorted(pool, key=lambda p: (p.count("/"), p))[0]
+
+
 def analyze_kubernetes_p0(
     *,
     repo_name: str,
@@ -246,7 +260,7 @@ def analyze_kubernetes_p0(
     if selection is not None:
         emit_build_system_findings(result, selection)
         if selection.selected == "gradle":
-            gradle_path = sorted(gradles, key=lambda p: (p.count("/"), p))[0]
+            gradle_path = _select_gradle_module(gradles)
             analyze_spring_boot(
                 result=result,
                 inventory=inventory,

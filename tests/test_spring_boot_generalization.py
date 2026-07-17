@@ -57,6 +57,73 @@ def _make_repo(tmp_path, *, name="orders-service", app_props=_APP_PROPS, extra=N
     return analyze_repository(str(tmp_path))
 
 
+_CATALOG = """\
+[versions]
+spring-boot = "3.5.0"
+
+[libraries]
+spring-starter-webflux = { module = "org.springframework.boot:spring-boot-starter-webflux", version.ref = "spring-boot" }
+spring-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator", version.ref = "spring-boot" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+"""
+
+_ROOT_GRADLE = "plugins {\n  id 'base'\n}\n"
+
+_API_GRADLE = """\
+plugins {
+  alias(libs.plugins.spring.boot)
+}
+group = 'io.acme'
+version = '2.1.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+dependencies {
+  implementation libs.spring.starter.webflux
+  implementation libs.spring.starter.actuator
+}
+"""
+
+
+def test_version_catalog_resolves_reactive_app_with_no_invented_db(tmp_path):
+    # Multi-module Gradle repo: the app lives in api/, deps come via a version
+    # catalog, and there is NO database anywhere.
+    (tmp_path / "build.gradle").write_text(_ROOT_GRADLE)
+    (tmp_path / "settings.gradle").write_text("rootProject.name = 'events-ui'\ninclude 'api'\n")
+    (tmp_path / "gradlew").write_text("#!/bin/sh\n")
+    (tmp_path / "gradle").mkdir()
+    (tmp_path / "gradle" / "libs.versions.toml").write_text(_CATALOG)
+    api = tmp_path / "api"
+    api.mkdir()
+    (api / "build.gradle").write_text(_API_GRADLE)
+    res = api / "src" / "main" / "resources"
+    res.mkdir(parents=True)
+    (res / "application.yml").write_text(
+        "management:\n  endpoints:\n    web:\n      exposure:\n        include: health,info\n"
+    )
+    # A demo SQL init under documentation/ must NOT be treated as the app's DB.
+    demo = tmp_path / "documentation" / "compose" / "postgres"
+    demo.mkdir(parents=True)
+    (demo / "data.sql").write_text("INSERT INTO x VALUES (1);\n")
+
+    result = analyze_repository(str(tmp_path))
+    comp = next(c for c in result.components if c.name == "events-ui")
+    # Catalog resolved -> the api module (not root) is analysed; WebFlux/Actuator visible.
+    assert "api/build.gradle" in comp.source_files
+    assert "Netty" in (comp.runtime or "")
+    assert any("WebFlux" in f for f in comp.frameworks)
+    assert any(h.subject == "health.actuator" and "present" in h.value for h in result.health_checks)
+    # No database -> no invented H2/Postgres/MySQL story.
+    assert not any(f.subject == "config.SPRING_PROFILES_ACTIVE" for f in result.configuration)
+    assert not any(f.subject == "startup.migration_tool" for f in result.startup_order)
+    assert "production_database_selection" not in {
+        u.subject for u in result.unresolved_operational_inputs
+    }
+    # Image-name example uses the real project name, never a hardcoded fixture name.
+    img = next(u for u in result.unresolved_operational_inputs if u.subject == "container_image_name")
+    assert "events-ui" in img.needed_input and "petclinic" not in img.needed_input
+
+
 def _app(result, name="orders-service"):
     return next(c for c in result.components if c.name == name)
 

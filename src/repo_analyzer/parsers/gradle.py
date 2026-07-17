@@ -21,6 +21,13 @@ import re
 from dataclasses import dataclass, field
 
 from .common import Located, ParseIssue
+from .version_catalog import VersionCatalog
+
+# Version-catalog accessor references: `alias(libs.plugins.spring.boot)` in a
+# plugins block, and `implementation libs.spring.starter.webflux` in a
+# dependencies block. Resolved to real coordinates via `apply_version_catalog`.
+_CATALOG_PLUGIN_RE = re.compile(r"^\s*alias\(\s*(libs\.[\w.]+)\s*\)")
+_CATALOG_DEP_RE = re.compile(r"^\s*(?P<cfg>[a-zA-Z][\w]*)\s*[(\s]\s*(?P<acc>libs\.[\w.]+)")
 
 # Gradle dependency configurations we recognise on a declaration line.
 _DEP_CONFIGURATIONS = (
@@ -98,6 +105,10 @@ class GradleBuild:
     is_kotlin: bool = False
     plugins: list[GradlePlugin] = field(default_factory=list)
     dependencies: list[GradleDependency] = field(default_factory=list)
+    # Version-catalog references captured verbatim; resolved by the caller once
+    # the catalog is available (`apply_version_catalog`).
+    plugin_alias_refs: list[tuple[str, Located]] = field(default_factory=list)
+    dependency_alias_refs: list[tuple[str, str, Located]] = field(default_factory=list)
     group: str | None = None
     version: str | None = None
     java_version: str | None = None
@@ -197,6 +208,13 @@ def _parse_plugins(lines: list[str], build: GradleBuild) -> None:
         stripped = text.strip()
         if not stripped or stripped.startswith(("//", "/*", "*")):
             continue
+        catalog_ref = _CATALOG_PLUGIN_RE.match(text)
+        if catalog_ref is not None:
+            accessor = catalog_ref.group(1)
+            build.plugin_alias_refs.append(
+                (accessor, Located(accessor, "plugin.alias", line_no, line_no))
+            )
+            continue
         match = _PLUGIN_RE.match(text)
         if match is None:
             match = _KOTLIN_PLUGIN_CALL_RE.match(text)
@@ -246,6 +264,12 @@ def _parse_dependencies(lines: list[str], build: GradleBuild) -> None:
             continue
         match = _DEP_RE.match(text)
         if match is None:
+            catalog_ref = _CATALOG_DEP_RE.match(text)
+            if catalog_ref is not None and catalog_ref.group("cfg") in _DEP_CONFIGURATIONS:
+                cfg, accessor = catalog_ref.group("cfg"), catalog_ref.group("acc")
+                build.dependency_alias_refs.append(
+                    (cfg, accessor, Located(accessor, f"dependency[{accessor}]", line_no, line_no))
+                )
             continue
         cfg = match.group("cfg")
         if cfg not in _DEP_CONFIGURATIONS:
@@ -311,6 +335,40 @@ def parse_gradle(text: str, path: str) -> GradleBuild:
     _parse_java_version(lines, build)
     _parse_group_version(lines, build)
     return build
+
+
+def apply_version_catalog(build: GradleBuild, catalog: VersionCatalog) -> None:
+    """Resolve captured ``libs.…`` accessors to real plugins/dependencies.
+
+    Runs after both the build script and the catalog are parsed. Unresolved
+    accessors are recorded as ``ParseIssue`` (never silently dropped)."""
+
+    for accessor, location in build.plugin_alias_refs:
+        plugin_id = catalog.plugin(accessor)
+        if plugin_id is not None:
+            build.plugins.append(GradlePlugin(id=plugin_id, version=None, location=location))
+        else:
+            build.issues.append(
+                ParseIssue("gradle_catalog_plugin", f"unresolved catalog plugin: {accessor}")
+            )
+    for cfg, accessor, location in build.dependency_alias_refs:
+        module = catalog.library(accessor)
+        if module is not None:
+            group, artifact, _ = _split_coordinate(module)
+            build.dependencies.append(
+                GradleDependency(
+                    configuration=cfg,
+                    coordinate=module,
+                    group=group,
+                    artifact=artifact,
+                    version=catalog.library_version(accessor),
+                    location=location,
+                )
+            )
+        else:
+            build.issues.append(
+                ParseIssue("gradle_catalog_dependency", f"unresolved catalog dependency: {accessor}")
+            )
 
 
 _ROOT_NAME_RE = re.compile(r"""rootProject\.name\s*=\s*['"]([^'"]+)['"]""")

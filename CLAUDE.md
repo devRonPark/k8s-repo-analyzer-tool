@@ -65,7 +65,8 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   `python_settings.py` (AST → `BaseSettings` fields); for Java/Maven:
   `xml_source.py` (line-preserving SAX XML tree), `maven.py`, `webxml.py`,
   `spring_xml.py`; for Gradle/Spring Boot: `gradle.py` (build.gradle plugins/deps/
-  toolchain via brace-block parsing; settings + wrapper), `spring_properties.py`
+  toolchain via brace-block parsing; settings + wrapper; `alias(libs.…)` /
+  `libs.…` catalog refs resolved via `version_catalog.py`), `spring_properties.py`
   (application*.properties + `${ENV:default}` placeholders), `spring_yaml.py`
   (application*.yml → flattened dot-keys into the same `SpringProperties` model,
   line-preserving via ruamel), `sql_init.py` (schema idempotency markers).
@@ -74,8 +75,11 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   and unknowns become `unresolved`. No I/O here. Runs the compose path, resolves
   the build system via `rules/build_system.py` (lists all, records the choice +
   override), then delegates to `rules/spring_boot.py:analyze_spring_boot` (Gradle)
-  or `rules/java_webapp.py:analyze_java_webapp` (Maven) — both pure; enrich the
-  matching component or synthesize one without compose. When there is no
+  or `rules/java_webapp.py:analyze_java_webapp` (Maven) — both pure. For Gradle it
+  selects the **deployable module** (the one applying the Spring Boot plugin, not
+  root) and only emits DB facts when the repo actually has a database (no invented
+  H2/Postgres story). Both enrich the matching component or synthesize one without
+  compose. When there is no
   deployment compose and no Java build system but a Dockerfile exists, it
   synthesizes a component from the primary Dockerfile (runtime, EXPOSE/`--port`,
   non-root USER, multi-stage targets/migration stage) + dotenv config/secrets. Both consume the parsed
@@ -123,7 +127,7 @@ The library signature is
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 152 tests, fully offline
+uv run pytest                             # 160 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \

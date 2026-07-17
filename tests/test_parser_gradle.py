@@ -92,10 +92,21 @@ def test_kotlin_dsl_plugins_and_dependencies():
     assert build.find_dependency("org.springframework.boot", "starter-webflux") is not None
 
 
-def test_unsupported_plugin_declaration_is_recorded_not_dropped():
+def test_catalog_alias_plugin_is_captured_not_dropped():
+    # alias(libs...) is no longer "unsupported" — it is captured for resolution.
     text = "plugins {\n  alias(libs.plugins.spring.boot)\n}\n"
     build = parse_gradle(text, "build.gradle")
-    assert any(i.construct == "gradle_plugin" for i in build.issues)
+    assert build.plugin_alias_refs and build.plugin_alias_refs[0][0] == "libs.plugins.spring.boot"
+    assert not any(i.construct == "gradle_plugin" for i in build.issues)
+
+
+def test_unresolved_catalog_alias_is_reported():
+    from repo_analyzer.parsers.gradle import apply_version_catalog
+    from repo_analyzer.parsers.version_catalog import parse_version_catalog
+
+    build = parse_gradle("plugins {\n  alias(libs.plugins.missing)\n}\n", "build.gradle")
+    apply_version_catalog(build, parse_version_catalog("", "gradle/libs.versions.toml"))
+    assert any(i.construct == "gradle_catalog_plugin" for i in build.issues)
 
 
 def test_settings_root_project_name():

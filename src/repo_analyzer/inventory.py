@@ -59,6 +59,7 @@ class Inventory:
     gradle_files: list[str] = field(default_factory=list)
     gradle_settings_files: list[str] = field(default_factory=list)
     gradle_wrapper_props: list[str] = field(default_factory=list)
+    version_catalog_files: list[str] = field(default_factory=list)
     spring_property_files: list[str] = field(default_factory=list)
     spring_yaml_files: list[str] = field(default_factory=list)
     sql_init_files: list[str] = field(default_factory=list)
@@ -97,11 +98,16 @@ _NON_DEPLOYMENT_DIRS = {
 }
 
 
-def _is_nondeployment_compose(rel: str) -> bool:
-    """True if a compose file lives under a documentation/examples/test path."""
+def is_non_deployment_path(rel: str) -> bool:
+    """True if a file lives under a documentation/examples/demo/test path — a
+    sample/demo, not part of the deployable application."""
 
     dirs = rel.split("/")[:-1]
     return any(part.lower() in _NON_DEPLOYMENT_DIRS for part in dirs)
+
+
+def _is_nondeployment_compose(rel: str) -> bool:
+    return is_non_deployment_path(rel)
 
 
 def _is_dockerfile(name: str) -> bool:
@@ -198,6 +204,8 @@ def build_inventory(root: Path) -> Inventory:
             inv.gradle_settings_files.append(rel)
         elif name == "gradle-wrapper.properties":
             inv.gradle_wrapper_props.append(rel)
+        elif name == "libs.versions.toml":
+            inv.version_catalog_files.append(rel)
         elif _is_spring_properties(name):
             inv.spring_property_files.append(rel)
         elif _is_spring_yaml(name):
@@ -252,6 +260,7 @@ def _build_detected(inv: Inventory, compose_candidates: list[str]) -> list[Detec
     detected += [DetectedFile(path=p, kind="gradle-build") for p in inv.gradle_files]
     detected += [DetectedFile(path=p, kind="gradle-settings") for p in inv.gradle_settings_files]
     detected += [DetectedFile(path=p, kind="gradle-wrapper") for p in inv.gradle_wrapper_props]
+    detected += [DetectedFile(path=p, kind="version-catalog") for p in inv.version_catalog_files]
     detected += [DetectedFile(path=p, kind="spring-properties") for p in inv.spring_property_files]
     detected += [DetectedFile(path=p, kind="spring-yaml") for p in inv.spring_yaml_files]
     detected += [DetectedFile(path=p, kind="sql-init") for p in inv.sql_init_files]

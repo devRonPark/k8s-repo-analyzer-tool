@@ -46,9 +46,17 @@ Three stack families are covered today:
 - **Spring Boot / Gradle applications** (e.g. spring-petclinic): `build.gradle`
   (applied plugins with versions, Java toolchain, dependencies with
   configuration), `settings.gradle` (project name → artifact name),
-  `gradle-wrapper.properties` (pinned Gradle version), and
+  `gradle-wrapper.properties` (pinned Gradle version),
   `application*.properties`/`application*.yml` (default vs per-profile
-  datasources, SQL init, Actuator). This surfaces the **selected build system** (when both Maven and
+  datasources, SQL init, Actuator), and the **version catalog**
+  (`gradle/libs.versions.toml`) — `alias(libs.…)` plugins and `libs.…`
+  dependencies are resolved to real coordinates so WebFlux/Actuator/DB drivers
+  are seen. In a multi-module repo the **deployable module** (the one applying
+  the Spring Boot plugin, e.g. `api/`) is analysed, not root, and DB-related
+  facts (H2 default, `SPRING_PROFILES_ACTIVE`, `spring.sql.init`,
+  `production_database_selection`) are emitted **only when the repo actually has
+  a database** — never invented for a DB-less app. This surfaces the
+  **selected build system** (when both Maven and
   Gradle are present it lists both, records the choice, and how to switch — never
   "the first `pom.xml`"), the **executable Spring Boot JAR** (`bootJar` vs a plain
   `jar`, `build/libs/*.jar`, `java -jar`), the default **8080** port, the

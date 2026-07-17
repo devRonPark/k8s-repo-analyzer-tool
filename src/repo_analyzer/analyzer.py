@@ -16,6 +16,7 @@ from .parsers.dockerfile import Dockerfile, parse_dockerfile
 from .parsers.dotenv import DotenvFile, parse_dotenv
 from .parsers.gradle import (
     GradleBuild,
+    apply_version_catalog,
     parse_gradle,
     parse_gradle_wrapper,
     parse_settings,
@@ -25,6 +26,7 @@ from .parsers.nginx import NginxConfig, parse_nginx
 from .parsers.python_settings import PythonSettings, parse_python_settings
 from .parsers.spring_properties import SpringProperties, parse_spring_properties
 from .parsers.spring_yaml import parse_spring_yaml
+from .parsers.version_catalog import parse_version_catalog
 from .parsers.spring_xml import SpringContext, parse_spring_xml
 from .parsers.sql_init import SqlInitScript, parse_sql_init
 from .parsers.webxml import WebApp, parse_webxml
@@ -111,11 +113,20 @@ def analyze_repository(
             if inventory.gradle_wrapper_props
             else None
         )
+        catalog = (
+            parse_version_catalog(
+                _read(root, inventory.version_catalog_files[0]), inventory.version_catalog_files[0]
+            )
+            if inventory.version_catalog_files
+            else None
+        )
         for build in gradles.values():
             if gradle_settings is not None:
                 build.root_project_name, build.root_project_name_location = gradle_settings
             if gradle_wrapper is not None:
                 build.wrapper_gradle_version, build.wrapper_location = gradle_wrapper
+            if catalog is not None:
+                apply_version_catalog(build, catalog)
 
     spring_props: dict[str, SpringProperties] = {
         rel: parse_spring_properties(_read(root, rel), rel) for rel in inventory.spring_property_files
