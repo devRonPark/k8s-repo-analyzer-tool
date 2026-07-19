@@ -130,7 +130,7 @@ The library signature is
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 169 tests, fully offline
+uv run pytest                             # 173 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \

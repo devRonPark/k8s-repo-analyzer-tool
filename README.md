@@ -42,7 +42,11 @@ Three stack families are covered today:
   (undefined run profile, JDK version mismatch). Spring `application*.yml`/
   `.properties` (test scopes excluded) also contribute the default **8080** port,
   per-profile datasources (external DB vs embedded), and datasource/JWT/keystore
-  env classified into **ConfigMap (URL) vs Secret (credentials)** candidates.
+  env classified into **ConfigMap (URL) vs Secret (credentials)** candidates. When
+  the POM ships **`spring-boot-starter-actuator`**, liveness/readiness probe paths
+  are emitted at the `management` base path (default `/actuator`, e.g. jhipster's
+  `/management/health/{liveness,readiness}`); a **`jib-maven-plugin`** is surfaced
+  as a Dockerfile-less image recipe.
 - **Spring Boot / Gradle applications** (e.g. spring-petclinic): `build.gradle`
   (applied plugins with versions, Java toolchain, dependencies with
   configuration), `settings.gradle` (project name → artifact name),

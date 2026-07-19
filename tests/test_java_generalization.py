@@ -169,6 +169,91 @@ def test_maven_prod_profile_build_command_from_readme(tmp_path):
     assert svc.build_command == "./mvnw -Pprod clean verify"
 
 
+_ACTUATOR_POM = _BOOT_POM.replace(
+    "  </dependencies>",
+    "    <dependency>\n"
+    "      <groupId>org.springframework.boot</groupId>\n"
+    "      <artifactId>spring-boot-starter-actuator</artifactId>\n"
+    "      <version>3.3.0</version>\n"
+    "    </dependency>\n"
+    "  </dependencies>",
+)
+
+_JIB_POM = _BOOT_POM.replace(
+    "<build><finalName>svc</finalName></build>",
+    "<build><finalName>svc</finalName><plugins>\n"
+    "    <plugin>\n"
+    "      <groupId>com.google.cloud.tools</groupId>\n"
+    "      <artifactId>jib-maven-plugin</artifactId>\n"
+    "      <version>3.4.0</version>\n"
+    "    </plugin>\n"
+    "  </plugins></build>",
+)
+
+
+def test_maven_actuator_probes_from_pom(tmp_path):
+    # spring-boot-starter-actuator in the POM is the readiness/liveness source; the
+    # probe paths honour management.endpoints.web.base-path (jhipster uses /management).
+    res = tmp_path / "src" / "main" / "resources"
+    res.mkdir(parents=True)
+    (tmp_path / "pom.xml").write_text(_ACTUATOR_POM)
+    (tmp_path / "Dockerfile").write_text(
+        'FROM eclipse-temurin:21-jre\nCOPY target/svc.jar /app.jar\nCMD ["java","-jar","/app.jar"]\n'
+    )
+    (res / "application.yml").write_text(
+        "management:\n"
+        "  endpoints:\n"
+        "    web:\n"
+        "      base-path: /management\n"
+        "      exposure:\n"
+        "        include: health,info\n"
+    )
+    result = analyze_repository(str(tmp_path))
+    hc = {f.subject: f for f in result.health_checks}
+    assert hc["health.actuator"].value.startswith("spring-boot-starter-actuator")
+    assert hc["health.actuator"].confidence == "explicit"
+    assert hc["health.liveness_probe"].value == "/management/health/liveness"
+    assert hc["health.readiness_probe"].value == "/management/health/readiness"
+    assert hc["health.overall"].value == "/management/health"
+    # Actuator present -> do NOT also claim "no health endpoint" as unresolved.
+    assert "readiness_liveness_probe" not in {
+        u.subject for u in result.unresolved_operational_inputs
+    }
+
+
+def test_maven_actuator_default_base_path(tmp_path):
+    # No management.base-path -> Spring Boot default /actuator.
+    res = tmp_path / "src" / "main" / "resources"
+    res.mkdir(parents=True)
+    (tmp_path / "pom.xml").write_text(_ACTUATOR_POM)
+    (res / "application.yml").write_text(
+        "management:\n  endpoints:\n    web:\n      exposure:\n        include: '*'\n"
+    )
+    result = analyze_repository(str(tmp_path))
+    hc = {f.subject: f for f in result.health_checks}
+    assert hc["health.liveness_probe"].value == "/actuator/health/liveness"
+
+
+def test_maven_without_actuator_keeps_probe_unresolved(tmp_path):
+    # Regression guard: no actuator -> no health finding, probe stays unresolved.
+    (tmp_path / "pom.xml").write_text(_BOOT_POM)
+    result = analyze_repository(str(tmp_path))
+    assert not any(f.subject == "health.actuator" for f in result.health_checks)
+    assert "readiness_liveness_probe" in {
+        u.subject for u in result.unresolved_operational_inputs
+    }
+
+
+def test_maven_jib_plugin_detected_without_dockerfile(tmp_path):
+    # jib-maven-plugin builds an OCI image with no Dockerfile; it IS the image recipe.
+    (tmp_path / "pom.xml").write_text(_JIB_POM)
+    result = analyze_repository(str(tmp_path))
+    jib = next(f for f in result.container_image if f.subject == "image.jib")
+    assert "jib" in jib.value.lower()
+    assert jib.evidence and jib.evidence[0].path == "pom.xml"
+    assert not any(f.value == "no Dockerfile found" for f in result.container_image)
+
+
 def test_empty_repo_still_reports_no_compose(tmp_path):
     # Regression guard: with neither compose nor Maven, the honest signal remains.
     result = analyze_repository(str(tmp_path))

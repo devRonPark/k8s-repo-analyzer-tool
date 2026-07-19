@@ -31,7 +31,7 @@ from ..models import (
 from ..parsers.common import Located
 from ..parsers.compose import ComposeFile
 from ..parsers.dockerfile import Dockerfile, exec_form
-from ..parsers.maven import MavenProfile, MavenProject
+from ..parsers.maven import MavenDependency, MavenPlugin, MavenProfile, MavenProject
 from ..parsers.spring_properties import SpringProperties, SpringProperty
 from ..parsers.spring_xml import SpringContext
 from ..parsers.webxml import WebApp
@@ -196,6 +196,7 @@ def analyze_java_webapp(
     _emit_context_and_routes(result, component, pom_rel, maven, webapp, readmes)
     _emit_datastores(result, component, springs, maven)
     _emit_spring_config_facts(result, component, maven, spring_props)
+    _emit_spring_health(result, maven, spring_props)
     _emit_image_findings(result, component, dockerfile_rel, dockerfile, maven)
     _emit_workload(result, component, pom_rel, maven, needs_external, app_server, compose_path, dockerfile_rel)
     _emit_java_unresolved(result, springs)
@@ -865,6 +866,114 @@ def _emit_spring_config_facts(
     _emit_spring_secrets(result, component, ordered)
 
 
+def _actuator_dep(maven: MavenProject) -> MavenDependency | None:
+    """The non-test ``spring-boot-starter-actuator`` dependency, if declared."""
+
+    for dep in maven.dependencies:
+        if dep.scope == "test":
+            continue
+        if dep.group_id.startswith("org.springframework.boot") and "actuator" in dep.artifact_id:
+            return dep
+    return None
+
+
+def _jib_plugin(maven: MavenProject) -> MavenPlugin | None:
+    """The ``jib-maven-plugin`` build plugin, if declared (Dockerfile-less image)."""
+
+    for plugin in maven.build_plugins:
+        if "jib" in plugin.artifact_id:
+            return plugin
+    return None
+
+
+def _lookup_prop(
+    ordered: list[SpringProperties], key: str
+) -> tuple[SpringProperty, str] | tuple[None, None]:
+    for props in ordered:
+        entry = props.get(key)
+        if entry is not None:
+            return entry, props.path
+    return None, None
+
+
+def _emit_spring_health(
+    result: AnalysisResult,
+    maven: MavenProject,
+    spring_props: dict[str, SpringProperties],
+) -> None:
+    """Mirror the Gradle Actuator rule on the Maven path: when the POM declares
+    ``spring-boot-starter-actuator`` there IS a health endpoint to probe. Probe
+    paths honour ``management.endpoints.web.base-path`` (default ``/actuator``);
+    jhipster relocates it to ``/management``. Runs regardless of whether an
+    ``application*.yml``/``.properties`` file exists."""
+
+    dep = _actuator_dep(maven)
+    if dep is None:
+        return
+    dep_ev = _ev(dep.location, maven.path, "dependency")
+    result.health_checks.append(
+        Finding(
+            subject="health.actuator",
+            value="spring-boot-starter-actuator present",
+            confidence="explicit",
+            kubernetes_effect="exposes an Actuator health endpoint and the Kubernetes liveness/readiness health groups",
+            evidence=[dep_ev],
+        )
+    )
+
+    usable = {rel: p for rel, p in spring_props.items() if not _is_test_config(rel)}
+    default_props = next((p for p in usable.values() if p.profile is None), None)
+    profile_props = sorted(
+        (p for p in usable.values() if p.profile is not None), key=lambda p: p.profile or ""
+    )
+    ordered = ([default_props] if default_props is not None else []) + profile_props
+
+    base = "/actuator"
+    base_ev = [dep_ev]
+    base_entry, base_path = _lookup_prop(ordered, "management.endpoints.web.base-path")
+    if base_entry is not None and base_entry.value.strip():
+        base = "/" + base_entry.value.strip().strip("/")
+        base_ev.append(_prop_ev(base_entry, base_path))
+
+    exposure, exposure_path = _lookup_prop(ordered, "management.endpoints.web.exposure.include")
+    if exposure is not None and exposure.value.strip():
+        result.health_checks.append(
+            Finding(
+                subject="health.exposure",
+                value=exposure.value,
+                confidence="explicit",
+                kubernetes_effect=f"controls which {base}/* endpoints are reachable over HTTP",
+                evidence=[_prop_ev(exposure, exposure_path)],
+            )
+        )
+
+    for subject, suffix, kind in (
+        ("health.liveness_probe", "/health/liveness", "liveness"),
+        ("health.readiness_probe", "/health/readiness", "readiness"),
+    ):
+        result.health_checks.append(
+            Finding(
+                subject=subject,
+                value=f"{base}{suffix}",
+                confidence="derived",
+                kubernetes_effect=(
+                    f"{kind}Probe httpGet.path candidate on the app port. Spring Boot auto-enables the "
+                    f"{kind} health group when running under Kubernetes."
+                ),
+                evidence=base_ev,
+            )
+        )
+    result.health_checks.append(
+        Finding(
+            subject="health.overall",
+            value=f"{base}/health",
+            confidence="derived",
+            kubernetes_effect="overall (aggregate) health endpoint on the app port",
+            evidence=base_ev,
+        )
+    )
+
+
 def _emit_image_findings(
     result: AnalysisResult,
     component: Component,
@@ -872,16 +981,33 @@ def _emit_image_findings(
     dockerfile: Dockerfile | None,
     maven: MavenProject,
 ) -> None:
-    if dockerfile is None:
+    # Jib builds an OCI image straight from the build, no Dockerfile or daemon.
+    jib = _jib_plugin(maven)
+    if jib is not None:
         result.container_image.append(
             Finding(
-                subject="image.buildable",
-                value="no Dockerfile found",
-                confidence="explicit",
-                kubernetes_effect="no container image recipe in the repo; one must be authored before deploying",
-                evidence=[],
+                subject="image.jib",
+                value="jib-maven-plugin",
+                confidence="derived",
+                kubernetes_effect=(
+                    "Jib builds an OCI image directly from the Maven build (no Dockerfile or Docker daemon) "
+                    "via `mvn jib:build` (to a registry) / `jib:dockerBuild` (to the local daemon); its image "
+                    "runs the app as a non-root user by default."
+                ),
+                evidence=[_ev(jib.location, maven.path, "plugin")],
             )
         )
+    if dockerfile is None:
+        if jib is None:
+            result.container_image.append(
+                Finding(
+                    subject="image.buildable",
+                    value="no Dockerfile found",
+                    confidence="explicit",
+                    kubernetes_effect="no container image recipe in the repo; one must be authored before deploying",
+                    evidence=[],
+                )
+            )
         return
     path = dockerfile_rel or dockerfile.path
     base = dockerfile.final_base_image
@@ -1015,13 +1141,19 @@ def _emit_workload(
 
 def _emit_java_unresolved(result: AnalysisResult, springs: dict[str, SpringContext]) -> None:
     existing = {u.subject for u in result.unresolved_operational_inputs}
-    additions = [
-        Unresolved(
-            subject="readiness_liveness_probe",
-            reason="the repository defines no health/readiness endpoint (no Spring Boot Actuator, no compose healthcheck)",
-            needed_input="an HTTP path or TCP port to probe (e.g. TCP 8080, or GET the context root once warm)",
-            kubernetes_effect="container readinessProbe / livenessProbe",
-        ),
+    additions: list[Unresolved] = []
+    # Only claim "no health endpoint" when nothing supplied one (no Actuator probe,
+    # no compose healthcheck). When a health check exists it is the probe source.
+    if not result.health_checks:
+        additions.append(
+            Unresolved(
+                subject="readiness_liveness_probe",
+                reason="the repository defines no health/readiness endpoint (no Spring Boot Actuator, no compose healthcheck)",
+                needed_input="an HTTP path or TCP port to probe (e.g. TCP 8080, or GET the context root once warm)",
+                kubernetes_effect="container readinessProbe / livenessProbe",
+            )
+        )
+    additions += [
         Unresolved(
             subject="security_context_run_as_non_root",
             reason="the image sets no USER; running as root is a deployment decision, not stated in the repo",
