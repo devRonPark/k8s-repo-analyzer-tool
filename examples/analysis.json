@@ -1047,7 +1047,68 @@
       ]
     }
   ],
-  "container_image": [],
+  "container_image": [
+    {
+      "subject": "image.dockerfile",
+      "value": "backend/Dockerfile",
+      "confidence": "explicit",
+      "kubernetes_effect": "the container image is built from this Dockerfile (build context = component dir)",
+      "evidence": [
+        {
+          "path": "backend/Dockerfile",
+          "selector": "Dockerfile",
+          "symbol": "Dockerfile",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "image.base",
+      "value": "python:3.14",
+      "confidence": "explicit",
+      "kubernetes_effect": "base image (informs runtime, CVE surface, non-root defaults)",
+      "evidence": [
+        {
+          "path": "backend/Dockerfile",
+          "selector": "FROM",
+          "symbol": "FROM",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "image.dockerfile",
+      "value": "frontend/Dockerfile",
+      "confidence": "explicit",
+      "kubernetes_effect": "the container image is built from this Dockerfile (build context = component dir)",
+      "evidence": [
+        {
+          "path": "frontend/Dockerfile",
+          "selector": "Dockerfile",
+          "symbol": "Dockerfile",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "image.base",
+      "value": "nginx:1",
+      "confidence": "explicit",
+      "kubernetes_effect": "base image (informs runtime, CVE surface, non-root defaults)",
+      "evidence": [
+        {
+          "path": "frontend/Dockerfile",
+          "selector": "FROM",
+          "symbol": "FROM",
+          "start_line": 2,
+          "end_line": 2
+        }
+      ]
+    }
+  ],
   "unresolved_operational_inputs": [
     {
       "subject": "replica_count",

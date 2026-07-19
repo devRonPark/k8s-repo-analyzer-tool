@@ -312,9 +312,9 @@ def _quick_answers_section(out, result: AnalysisResult) -> None:
     workloads = "; ".join(f"{c.name} → {c.workload_candidate}" for c in result.components) or "none"
     out(f"2. **Which workloads?** {workloads}")
     ports = "; ".join(
-        f"{f.subject.replace('.container_port', '')}:{f.value}"
-        for f in result.networking
-        if f.subject.endswith(".container_port")
+        f"{c.name}:{', '.join(str(p) for p in c.container_ports)}"
+        for c in result.components
+        if c.container_ports
     ) or "none"
     out(f"3. **Ports/Services?** {ports}")
     storage = "; ".join(

@@ -187,7 +187,7 @@ _No unsupported constructs._
 
 1. **Components?** mysql, postgres, spring-petclinic
 2. **Which workloads?** mysql → StatefulSet + headless Service (or external managed database); postgres → StatefulSet + headless Service (or external managed database); spring-petclinic → Deployment + ClusterIP Service
-3. **Ports/Services?** mysql:3306; postgres:5432
+3. **Ports/Services?** mysql:3306; postgres:5432; spring-petclinic:8080
 4. **What must persist?** none
 5. **ConfigMap/Secret?** 2 ConfigMap keys, 4 secret keys
 6. **Init first?** none detected

@@ -152,7 +152,14 @@ Overall order (derived):
 
 ## 8b. Container image build & runtime
 
-_No container image facts detected._
+- image.dockerfile: **backend/Dockerfile** — the container image is built from this Dockerfile (build context = component dir) (explicit)
+  - evidence: `backend/Dockerfile:1-1` (Dockerfile)
+- image.base: **python:3.14** — base image (informs runtime, CVE surface, non-root defaults) (explicit)
+  - evidence: `backend/Dockerfile:1-1` (FROM)
+- image.dockerfile: **frontend/Dockerfile** — the container image is built from this Dockerfile (build context = component dir) (explicit)
+  - evidence: `frontend/Dockerfile:1-1` (Dockerfile)
+- image.base: **nginx:1** — base image (informs runtime, CVE surface, non-root defaults) (explicit)
+  - evidence: `frontend/Dockerfile:2-2` (FROM)
 
 ## 9. Unresolved operational inputs
 

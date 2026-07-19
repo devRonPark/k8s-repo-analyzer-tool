@@ -1,7 +1,7 @@
 # Kubernetes P0 Analysis — jpetstore-6
 
 - Profile: `kubernetes-p0`
-- Git ref: `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d`
+- Git ref: (not provided)
 - Detected files: 8
 - Schema version: 1.0
 
@@ -95,6 +95,10 @@ _None detected._
 
 ## 8b. Container image build & runtime
 
+- image.dockerfile: **Dockerfile** — the container image is built from this Dockerfile (build context = component dir) (explicit)
+  - evidence: `Dockerfile:1-1` (Dockerfile)
+- image.base: **openjdk:25** — base image (informs runtime, CVE surface, non-root defaults) (explicit)
+  - evidence: `Dockerfile:17-17` (FROM)
 - image.build_command: **./mvnw clean package** — produces the artifact during image build; needs network for dependency resolution (derived)
   - evidence: `Dockerfile:20-20` (RUN); `README.md:37-37` (README)
 - image.start_command: **./mvnw cargo:run -P tomcat90** — container entrypoint/command (Deployment container.command/args) (explicit)

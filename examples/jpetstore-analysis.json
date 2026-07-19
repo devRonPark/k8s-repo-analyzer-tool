@@ -3,7 +3,7 @@
   "repository": {
     "name": "jpetstore-6",
     "profile": "kubernetes-p0",
-    "git_ref": "5a7cc780505b88a60779b3e3c0a50b0e404cfb2d",
+    "git_ref": null,
     "file_count": 8
   },
   "detected_files": [
@@ -534,6 +534,36 @@
   "health_checks": [],
   "build_time_constraints": [],
   "container_image": [
+    {
+      "subject": "image.dockerfile",
+      "value": "Dockerfile",
+      "confidence": "explicit",
+      "kubernetes_effect": "the container image is built from this Dockerfile (build context = component dir)",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "Dockerfile",
+          "symbol": "Dockerfile",
+          "start_line": 1,
+          "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "image.base",
+      "value": "openjdk:25",
+      "confidence": "explicit",
+      "kubernetes_effect": "base image (informs runtime, CVE surface, non-root defaults)",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "selector": "FROM",
+          "symbol": "FROM",
+          "start_line": 17,
+          "end_line": 17
+        }
+      ]
+    },
     {
       "subject": "image.build_command",
       "value": "./mvnw clean package",

@@ -54,6 +54,27 @@ _SECRET_PATTERNS = (
 )
 _PLACEHOLDER_VALUES = {"changethis", "change_this", "changeme", "secret", "password"}
 
+# Substrings (case-insensitive) that mark a name as *metadata about* a secret
+# (its expiry/rotation policy, length, or a boolean toggle) rather than the
+# secret value itself. Such names carry a non-sensitive scalar and must not be
+# classified as Secret candidates, even when they contain a secret substring
+# (e.g. JWT_RESET_PASSWORD_EXPIRATION_MINUTES=10).
+_SECRET_NEGATIVE_PATTERNS = (
+    "EXPIRATION",
+    "EXPIRE",
+    "EXPIRY",
+    "_TTL",
+    "TIMEOUT",
+    "_MINUTES",
+    "_SECONDS",
+    "_DAYS",
+    "_HOURS",
+    "_LENGTH",
+    "_ROTATION",
+    "_ENABLED",
+    "_ALGORITHM",
+)
+
 _DB_IMAGE_RUNTIMES = {
     "postgres": ("PostgreSQL", 5432),
     "postgresql": ("PostgreSQL", 5432),
@@ -66,7 +87,11 @@ _DB_IMAGE_RUNTIMES = {
 
 def is_secret(name: str) -> bool:
     upper = name.upper()
-    return any(pattern in upper for pattern in _SECRET_PATTERNS)
+    if not any(pattern in upper for pattern in _SECRET_PATTERNS):
+        return False
+    if any(pattern in upper for pattern in _SECRET_NEGATIVE_PATTERNS):
+        return False
+    return True
 
 
 def _ev(loc: Located, path: str, symbol: str | None = None) -> Evidence:
@@ -273,6 +298,7 @@ def analyze_kubernetes_p0(
             )
         _analyze_config_and_secrets(result, dotenvs)
         _analyze_startup(result, compose, compose_path, inventory, shell_scripts)
+        _emit_compose_image_facts(result, dockerfiles)
 
     # Java build path: pick the build system deliberately (never "first pom.xml").
     selection, bs_warnings = resolve_build_system(
@@ -875,6 +901,29 @@ def _emit_dockerfile_image(
                 )
             )
             break
+
+
+def _emit_compose_image_facts(
+    result: AnalysisResult, dockerfiles: dict[str, Dockerfile]
+) -> None:
+    """Mine container-image facts from the Dockerfile a compose service builds.
+
+    The no-compose path already surfaces base image, non-root ``USER``,
+    multi-stage targets and migration ``CMD`` via ``_emit_dockerfile_image``.
+    Compose-driven components resolve a real Dockerfile too, so mine the same
+    facts here. Dedupe by Dockerfile path so services that share one image
+    (e.g. an app and its migration sidecar) emit a single set of findings.
+    """
+    seen: set[str] = set()
+    for component in result.components:
+        rel = component.dockerfile
+        if not rel or rel in seen:
+            continue
+        df = dockerfiles.get(rel)
+        if df is None:
+            continue
+        seen.add(rel)
+        _emit_dockerfile_image(result, df, rel, component)
 
 
 def _emit_alembic_init(result: AnalysisResult, inventory: Inventory) -> None:
