@@ -1076,13 +1076,19 @@ def _find_build_command(
                     )
                 )
                 break
-    readme_ev = _readme_evidence(
-        readmes, lambda t: ("mvnw" in t or "mvn " in t) and "package" in t
-    )
+    # A Maven build line: `package` (jpetstore) or a profile-driven `verify`/`install`
+    # (jhipster's `./mvnw -Pprod clean verify`). The whole line is captured so a
+    # production `-P<profile>` flag is never dropped from the build command.
+    def _is_maven_build(t: str) -> bool:
+        return ("mvnw" in t or "mvn " in t) and any(
+            goal in t for goal in ("package", "verify", "install")
+        )
+
+    readme_ev = _readme_evidence(readmes, _is_maven_build)
     if readme_ev is not None:
         evidence.append(readme_ev)
         if command is None:
-            command = _readme_line(readmes, lambda t: ("mvnw" in t or "mvn " in t) and "package" in t)
+            command = _readme_line(readmes, _is_maven_build)
     return command, evidence
 
 

@@ -77,8 +77,11 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   override), then delegates to `rules/spring_boot.py:analyze_spring_boot` (Gradle)
   or `rules/java_webapp.py:analyze_java_webapp` (Maven) — both pure. For Gradle it
   selects the **deployable module** (the one applying the Spring Boot plugin, not
-  root) and only emits DB facts when the repo actually has a database (no invented
-  H2/Postgres story). Both enrich the matching component or synthesize one without
+  root); the bootJar artifact path and build command follow that module
+  (`api/build/libs/api-*.jar`, `./gradlew :api:bootJar` — not root `build/libs`),
+  the archive base name defaults to the module dir and the version is wildcarded
+  when not declared in the module (never invented). It only emits DB facts when
+  the repo actually has a database (no invented H2/Postgres story). Both enrich the matching component or synthesize one without
   compose. When there is no
   deployment compose and no Java build system but a Dockerfile exists, it
   synthesizes a component from the primary Dockerfile (runtime, EXPOSE/`--port`,
@@ -127,7 +130,7 @@ The library signature is
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 160 tests, fully offline
+uv run pytest                             # 169 tests, fully offline
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \

@@ -81,6 +81,13 @@ _SOURCECOMPAT_RE = re.compile(
 _GROUP_RE = re.compile(r"^\s*group\s*=\s*['\"]([^'\"]+)['\"]")
 _VERSION_RE = re.compile(r"^\s*version\s*=\s*['\"]([^'\"]+)['\"]")
 
+# `-P` build-property accessors: hasProperty("x") / findProperty('x') /
+# providers.gradleProperty("x"). These gate build behaviour (e.g. bundling a
+# production frontend); the coordinate is the property name a `-Px` flag sets.
+_BUILD_PROPERTY_RE = re.compile(
+    r"\b(?:hasProperty|findProperty|gradleProperty)\s*\(\s*['\"]([\w.\-]+)['\"]"
+)
+
 
 @dataclass
 class GradlePlugin:
@@ -111,6 +118,9 @@ class GradleBuild:
     dependency_alias_refs: list[tuple[str, str, Located]] = field(default_factory=list)
     group: str | None = None
     version: str | None = None
+    # `-P` build properties referenced in the script (name -> first source line),
+    # sorted by name for determinism.
+    build_properties: list[tuple[str, Located]] = field(default_factory=list)
     java_version: str | None = None
     java_version_line: tuple[int, int] | None = None
     java_version_selector: str | None = None
@@ -325,6 +335,20 @@ def _parse_group_version(lines: list[str], build: GradleBuild) -> None:
                 build.version = vmatch.group(1)
 
 
+def _parse_build_properties(lines: list[str], build: GradleBuild) -> None:
+    """Collect ``-P`` build-property references (``hasProperty``/``findProperty``/
+    ``gradleProperty``). Deduped on the property name, keeping the first source
+    line, and sorted by name so the result is deterministic."""
+
+    seen: dict[str, Located] = {}
+    for index, line in enumerate(lines):
+        for match in _BUILD_PROPERTY_RE.finditer(line):
+            name = match.group(1)
+            if name not in seen:
+                seen[name] = Located(name, "build.property", index + 1, index + 1)
+    build.build_properties = [(name, seen[name]) for name in sorted(seen)]
+
+
 def parse_gradle(text: str, path: str) -> GradleBuild:
     """Parse a ``build.gradle`` (Groovy) or ``build.gradle.kts`` (Kotlin) file."""
 
@@ -334,6 +358,7 @@ def parse_gradle(text: str, path: str) -> GradleBuild:
     _parse_dependencies(lines, build)
     _parse_java_version(lines, build)
     _parse_group_version(lines, build)
+    _parse_build_properties(lines, build)
     return build
 
 

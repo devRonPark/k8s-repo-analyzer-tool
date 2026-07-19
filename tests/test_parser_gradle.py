@@ -124,3 +124,33 @@ def test_wrapper_distribution_version():
     version, loc = parsed
     assert version == "8.11.1"
     assert loc.start_line == 1
+
+
+_WITH_PROPS = """\
+plugins {
+  id 'org.springframework.boot' version '3.4.1'
+}
+if (project.hasProperty("include-frontend")) {
+  apply from: 'frontend.gradle'
+}
+def prod = findProperty('prod') ?: 'false'
+tasks.register('x') {
+  onlyIf { providers.gradleProperty("skipTests").isPresent() }
+}
+"""
+
+
+def test_build_properties_detected_with_lines():
+    build = parse_gradle(_WITH_PROPS, "build.gradle")
+    names = [name for name, _ in build.build_properties]
+    # hasProperty / findProperty / gradleProperty accessors are all captured.
+    assert names == ["include-frontend", "prod", "skipTests"]
+    # Located to the real source line, deduped, sorted by name for determinism.
+    by_name = dict(build.build_properties)
+    assert by_name["include-frontend"].start_line == 4
+    assert by_name["prod"].start_line == 7
+
+
+def test_no_build_properties_when_absent():
+    build = parse_gradle(_GROOVY, "build.gradle")
+    assert build.build_properties == []

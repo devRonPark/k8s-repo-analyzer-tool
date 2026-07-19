@@ -59,7 +59,10 @@ Three stack families are covered today:
   **selected build system** (when both Maven and
   Gradle are present it lists both, records the choice, and how to switch — never
   "the first `pom.xml`"), the **executable Spring Boot JAR** (`bootJar` vs a plain
-  `jar`, `build/libs/*.jar`, `java -jar`), the default **8080** port, the
+  `jar`, `java -jar`) resolved to the **deployable module's** archive location
+  (e.g. `api/build/libs/api-*.jar` and `./gradlew :api:bootJar` for a submodule,
+  not root `build/libs`), any **`-P` build properties** the script gates on (e.g.
+  `-Pinclude-frontend`) surfaced as build-time constraints, the default **8080** port, the
   **H2 (default) vs external PostgreSQL/MySQL** profiles with their env vars
   classified into **ConfigMap (URL) vs Secret (user/password)** candidates,
   **`spring.sql.init`** startup initialization (idempotent, not Flyway/Liquibase),

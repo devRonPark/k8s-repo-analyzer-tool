@@ -109,6 +109,7 @@ def analyze_spring_boot(
     _fill_source_files(component, gradle, gradle_path, inventory, spring_props, sql_inits, readmes)
     _emit_build_system_stack(result, component, gradle, gradle_path, inventory)
     _emit_artifact_and_run(result, component, gradle, gradle_path, inventory)
+    _emit_build_properties(result, gradle, gradle_path)
     _emit_port(result, component, gradle, gradle_path, spring_props, readmes)
     _emit_profiles_and_datasources(
         result, component, default_props, profile_props, gradle, gradle_path, has_db
@@ -153,6 +154,39 @@ def _profile_properties(spring_props: dict[str, SpringProperties]) -> list[Sprin
 def _wrapper_command(inventory: Inventory) -> tuple[str, bool]:
     has_gradlew = any(w.rsplit("/", 1)[-1] == "gradlew" for w in inventory.build_wrappers)
     return ("./gradlew", True) if has_gradlew else ("gradle", False)
+
+
+def _module_dir(gradle_path: str) -> str:
+    """Directory of the deployable build script, '' for the root build.gradle."""
+
+    return gradle_path.rsplit("/", 1)[0] if "/" in gradle_path else ""
+
+
+def _module_project_name(module_dir: str) -> str:
+    """Gradle subproject name of a submodule: the module directory's basename
+    (the default ``archiveBaseName`` for that project)."""
+
+    return module_dir.rsplit("/", 1)[-1]
+
+
+def _artifact_path(gradle: GradleBuild, gradle_path: str) -> tuple[str, str]:
+    """``(bootJar artifact path, confidence)``.
+
+    For a submodule the archive lives under ``<module-dir>/build/libs`` and the
+    ``archiveBaseName`` defaults to the Gradle subproject name (the module
+    directory's basename); the version is the module's own ``version`` when
+    declared, else a wildcard — never invented. The root build keeps the
+    project-name-derived path."""
+
+    module_dir = _module_dir(gradle_path)
+    if module_dir:
+        name = _module_project_name(module_dir)
+        filename = f"{name}-{gradle.version}.jar" if gradle.version else f"{name}-*.jar"
+        return f"{module_dir}/build/libs/{filename}", "derived"
+    base = gradle.artifact_base_name
+    if base:
+        return f"build/libs/{base}.jar", "derived"
+    return "build/libs/*.jar", "explicit"
 
 
 def _starter_frameworks(gradle: GradleBuild) -> list[tuple[str, Evidence]]:
@@ -340,11 +374,21 @@ def _emit_artifact_and_run(
     wrapper_cmd, _ = _wrapper_command(inventory)
     boot = gradle.plugin_prefixed("org.springframework.boot")
 
-    # Build/run commands.
-    component.build_command = f"{wrapper_cmd} clean bootJar"
+    # Build/run commands. In a multi-module repo the deployable app is a submodule,
+    # so bootJar/bootRun must be qualified with the module path (e.g. `:api:bootJar`).
+    module_dir = _module_dir(gradle_path)
+    if module_dir:
+        qualifier = f":{_module_project_name(module_dir)}:"
+        bootjar_cmd = f"{wrapper_cmd} {qualifier}bootJar"
+        bootrun_cmd = f"{wrapper_cmd} {qualifier}bootRun"
+    else:
+        bootjar_cmd = f"{wrapper_cmd} clean bootJar"
+        bootrun_cmd = f"{wrapper_cmd} bootRun"
+
+    component.build_command = bootjar_cmd
     for subject, value, effect in (
-        ("build.command.bootjar", f"{wrapper_cmd} clean bootJar", "produces the executable Spring Boot JAR for the image"),
-        ("build.command.bootrun", f"{wrapper_cmd} bootRun", "developer run (not used in the container image)"),
+        ("build.command.bootjar", bootjar_cmd, "produces the executable Spring Boot JAR for the image"),
+        ("build.command.bootrun", bootrun_cmd, "developer run (not used in the container image)"),
         ("build.command.test", f"{wrapper_cmd} test", "unit/integration tests (CI gate)"),
     ):
         result.configuration.append(
@@ -372,19 +416,25 @@ def _emit_artifact_and_run(
         )
     )
 
-    # Artifact path derived from project metadata (never a hardcoded name).
-    base = gradle.artifact_base_name
-    artifact_path = f"build/libs/{base}.jar" if base else "build/libs/*.jar"
+    # Artifact path derived from project metadata (never a hardcoded name). In a
+    # multi-module repo the bootJar lives under the deployable submodule's build
+    # dir (e.g. api/build/libs/api-*.jar), not the root project's.
+    artifact_path, artifact_confidence = _artifact_path(gradle, gradle_path)
     component.build_artifact = artifact_path
     component.packaging = "jar (Spring Boot executable)"
     art_ev: list[Evidence] = []
-    if gradle.root_project_name_location is not None and inventory.gradle_settings_files:
+    if module_dir:
+        # The submodule's own build.gradle (its Spring Boot plugin) is what makes
+        # this the deployable module and fixes the archive location.
+        if boot is not None:
+            art_ev.append(_ev_loc(boot.location, gradle_path, "plugin"))
+    elif gradle.root_project_name_location is not None and inventory.gradle_settings_files:
         art_ev.append(_ev_loc(gradle.root_project_name_location, inventory.gradle_settings_files[0], "rootProject.name"))
     result.configuration.append(
         Finding(
             subject="build.artifact",
             value=artifact_path,
-            confidence="derived" if base else "explicit",
+            confidence=artifact_confidence,
             kubernetes_effect="the runnable JAR to copy into the image / run with `java -jar`",
             evidence=art_ev or ([_ev_loc(boot.location, gradle_path, "plugin")] if boot else []),
         )
@@ -396,6 +446,50 @@ def _emit_artifact_and_run(
             confidence="derived",
             kubernetes_effect="container command for the Deployment (exec form; JVM is PID 1 for clean SIGTERM)",
             evidence=art_ev or ([_ev_loc(boot.location, gradle_path, "plugin")] if boot else []),
+        )
+    )
+
+
+def _emit_build_properties(
+    result: AnalysisResult,
+    gradle: GradleBuild,
+    gradle_path: str,
+) -> None:
+    """Surface ``-P`` build properties the script references (e.g.
+    ``include-frontend``, ``prod``). Each gates the build output, so the default
+    ``bootJar`` may not produce the production artifact. We record the property as
+    a build-time constraint and leave *whether* to enable it ``unresolved`` — the
+    repository does not state which value the production build needs."""
+
+    if not gradle.build_properties:
+        return
+    names: list[str] = []
+    for name, loc in gradle.build_properties:
+        names.append(name)
+        result.build_time_constraints.append(
+            Finding(
+                subject=f"build.property.{name}",
+                value="build-time",
+                confidence="derived",
+                kubernetes_effect=(
+                    f"the build gates behaviour on the '{name}' Gradle property; pass `-P{name}` "
+                    f"(e.g. `-P{name}=true`) at build time to change the produced artifact. It cannot "
+                    "be set at runtime via env/ConfigMap."
+                ),
+                evidence=[_ev_loc(loc, gradle_path, "build.property")],
+            )
+        )
+    result.unresolved_operational_inputs.append(
+        Unresolved(
+            subject="build_profile_properties",
+            reason=(
+                "the build references `-P` properties ("
+                + ", ".join(names)
+                + ") that change the produced artifact; which values the production build needs is "
+                "not stated in the repository (e.g. bundling the frontend, a prod profile)"
+            ),
+            needed_input="the `-P` flags the production build requires (e.g. -Pinclude-frontend=true, -Pprod)",
+            kubernetes_effect="the build/CI command that produces the deployable image artifact",
         )
     )
 

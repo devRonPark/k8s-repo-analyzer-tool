@@ -124,6 +124,102 @@ def test_version_catalog_resolves_reactive_app_with_no_invented_db(tmp_path):
     assert "events-ui" in img.needed_input and "petclinic" not in img.needed_input
 
 
+def _make_multimodule(tmp_path, *, api_gradle=_API_GRADLE, root_gradle=_ROOT_GRADLE):
+    """Multi-module Gradle repo: deployable Spring Boot app lives in api/."""
+    (tmp_path / "build.gradle").write_text(root_gradle)
+    (tmp_path / "settings.gradle").write_text("rootProject.name = 'events-ui'\ninclude 'api'\n")
+    (tmp_path / "gradlew").write_text("#!/bin/sh\n")
+    (tmp_path / "gradle").mkdir()
+    (tmp_path / "gradle" / "libs.versions.toml").write_text(_CATALOG)
+    api = tmp_path / "api"
+    api.mkdir()
+    (api / "build.gradle").write_text(api_gradle)
+    res = api / "src" / "main" / "resources"
+    res.mkdir(parents=True)
+    (res / "application.yml").write_text(
+        "management:\n  endpoints:\n    web:\n      exposure:\n        include: health,info\n"
+    )
+    return analyze_repository(str(tmp_path))
+
+
+def test_multimodule_artifact_path_uses_submodule_dir(tmp_path):
+    # bootJar of the api submodule -> api/build/libs/api-<version>.jar, NOT
+    # build/libs/<rootProject.name>.jar. A wrong path breaks the Dockerfile COPY.
+    result = _make_multimodule(tmp_path)
+    comp = next(c for c in result.components if c.name == "events-ui")
+    assert comp.build_artifact == "api/build/libs/api-2.1.0.jar"
+    art = next(f for f in result.configuration if f.subject == "build.artifact")
+    assert art.value == "api/build/libs/api-2.1.0.jar"
+    # exec command uses the same module-aware path.
+    exec_cmd = next(f for f in result.configuration if f.subject == "runtime.exec_command")
+    assert exec_cmd.value == "java -jar api/build/libs/api-2.1.0.jar"
+
+
+def test_multimodule_artifact_wildcards_unknown_version(tmp_path):
+    # Version is inherited from root (allprojects) -> submodule build.gradle has no
+    # `version =`. Honestly emit a wildcard rather than inventing one.
+    api_no_version = _API_GRADLE.replace("version = '2.1.0'\n", "")
+    result = _make_multimodule(tmp_path, api_gradle=api_no_version)
+    comp = next(c for c in result.components if c.name == "events-ui")
+    assert comp.build_artifact == "api/build/libs/api-*.jar"
+
+
+def test_multimodule_build_command_is_module_qualified(tmp_path):
+    result = _make_multimodule(tmp_path)
+    comp = next(c for c in result.components if c.name == "events-ui")
+    assert comp.build_command == "./gradlew :api:bootJar"
+    boot_jar = next(f for f in result.configuration if f.subject == "build.command.bootjar")
+    assert boot_jar.value == "./gradlew :api:bootJar"
+
+
+def test_single_module_artifact_and_command_unchanged(tmp_path):
+    # Regression guard: a root (single-module) app keeps the root-relative path.
+    result = _make_repo(tmp_path, name="orders-service")
+    app = _app(result)
+    assert app.build_artifact == "build/libs/orders-service-9.9.9.jar"
+    assert app.build_command == "./gradlew clean bootJar"
+
+
+_API_GRADLE_FRONTEND = """\
+plugins {
+  alias(libs.plugins.spring.boot)
+}
+group = 'io.acme'
+version = '2.1.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+if (project.hasProperty("include-frontend")) {
+  apply from: 'frontend.gradle'
+}
+dependencies {
+  implementation libs.spring.starter.webflux
+  implementation libs.spring.starter.actuator
+}
+"""
+
+
+def test_build_property_surfaced_as_buildtime_and_unresolved(tmp_path):
+    # A `-P` build property (e.g. include-frontend) gates the build output; surface
+    # it as a build-time constraint + unresolved input, never invent whether to set it.
+    result = _make_multimodule(tmp_path, api_gradle=_API_GRADLE_FRONTEND)
+    bt = next(
+        f for f in result.build_time_constraints if f.subject == "build.property.include-frontend"
+    )
+    assert bt.confidence == "derived"
+    assert "-Pinclude-frontend" in bt.kubernetes_effect
+    assert bt.evidence and bt.evidence[0].path == "api/build.gradle"
+    assert "build_profile_properties" in {u.subject for u in result.unresolved_operational_inputs}
+
+
+def test_no_build_property_finding_when_absent(tmp_path):
+    result = _make_multimodule(tmp_path)  # plain _API_GRADLE has no hasProperty
+    assert not any(
+        f.subject.startswith("build.property.") for f in result.build_time_constraints
+    )
+    assert "build_profile_properties" not in {
+        u.subject for u in result.unresolved_operational_inputs
+    }
+
+
 def _app(result, name="orders-service"):
     return next(c for c in result.components if c.name == name)
 

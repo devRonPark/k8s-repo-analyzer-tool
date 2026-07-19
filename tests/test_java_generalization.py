@@ -154,6 +154,21 @@ def test_maven_war_without_compose(tmp_path):
     assert "Deployment" in mapping.kubernetes_kind
 
 
+def test_maven_prod_profile_build_command_from_readme(tmp_path):
+    # jhipster-style: the production build is `./mvnw -Pprod clean verify` (verify,
+    # not package). The prod profile flag must NOT be dropped from the build command.
+    (tmp_path / "pom.xml").write_text(_BOOT_POM)
+    (tmp_path / "Dockerfile").write_text(
+        'FROM eclipse-temurin:21-jre\nCOPY target/svc.jar /app.jar\nCMD ["java","-jar","/app.jar"]\n'
+    )
+    (tmp_path / "README.md").write_text(
+        "# svc\n\nTo build for production run:\n\n    ./mvnw -Pprod clean verify\n"
+    )
+    result = analyze_repository(str(tmp_path))
+    svc = next(c for c in result.components if (c.language or "").startswith("Java"))
+    assert svc.build_command == "./mvnw -Pprod clean verify"
+
+
 def test_empty_repo_still_reports_no_compose(tmp_path):
     # Regression guard: with neither compose nor Maven, the honest signal remains.
     result = analyze_repository(str(tmp_path))
