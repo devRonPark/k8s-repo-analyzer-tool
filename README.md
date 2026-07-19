@@ -30,7 +30,11 @@ Three stack families are covered today:
   migration stage) plus dotenv config/Secret candidates. Compose files under a
   `documentation/`, `examples/`, `demo/` or `test/` path are treated as
   demos/samples — **not** the deployment topology — and their services never
-  become workloads.
+  become workloads. Each service is mapped to the fitting workload: StatefulSet
+  (database/persistent), Job (prestart/init), a **background queue worker**
+  (Celery/taskiq/arq-style command with no inbound port → a Deployment with **no
+  Service**), Nginx static assets, or the default stateless Deployment + ClusterIP
+  Service.
 - **Maven / Java web applications** (e.g. a WAR on an external servlet
   container): `pom.xml` (packaging, finalName, Java version, dependencies with
   scope, per-profile application servers), `web.xml` (servlets, listeners,

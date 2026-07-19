@@ -107,6 +107,47 @@ def test_demo_compose_ignored_and_dockerfile_component(tmp_path):
     assert "Deployment" in result.workload_mappings[0].kubernetes_kind
 
 
+_WORKER_COMPOSE = """\
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.worker worker --loglevel=info
+  beat:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "app.worker", "worker", "--concurrency", "2"]
+"""
+
+
+def test_background_worker_service_maps_to_deployment_without_service(tmp_path):
+    # A queue worker has no inbound port -> a Deployment but NO Service (a
+    # ClusterIP Service would be wrong). An HTTP service is unaffected.
+    backend = tmp_path / "backend"
+    backend.mkdir()
+    (backend / "Dockerfile").write_text(_PY_DOCKERFILE)
+    (tmp_path / "compose.yml").write_text(_WORKER_COMPOSE)
+
+    result = analyze_repository(str(tmp_path))
+    kinds = {w.component: w.kubernetes_kind for w in result.workload_mappings}
+
+    # HTTP backend keeps a Service.
+    assert kinds["backend"] == "Deployment + ClusterIP Service"
+    # Workers: Deployment, explicitly no Service.
+    for name in ("worker", "beat"):
+        assert "Deployment" in kinds[name]
+        assert "no Service" in kinds[name]
+        assert "ClusterIP" not in kinds[name]
+    worker = next(c for c in result.components if c.name == "worker")
+    assert worker.container_ports == []
+    assert worker.workload_candidate == kinds["worker"]
+
+
 def test_no_compose_no_dockerfile_still_reports_absence(tmp_path):
     # Nothing analyzable -> honest no_compose (unchanged behaviour).
     (tmp_path / "README.md").write_text("# nothing here\n")

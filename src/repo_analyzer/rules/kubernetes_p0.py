@@ -112,6 +112,28 @@ def _healthcheck_url(test_value: object) -> tuple[int | None, str | None]:
     return None, None
 
 
+def _is_worker_command(command: list[str] | None) -> bool:
+    """True when the command runs a background queue worker (Celery/taskiq/arq/
+    dramatiq/rq). Such a process consumes a broker and exposes no inbound port,
+    so it maps to a Deployment with NO Service. `celery beat`/`flower` (scheduler/
+    UI) are deliberately excluded — only the `worker` role matches for Celery."""
+
+    if not command:
+        return False
+    tokens = [t.lower() for t in command]
+    if "celery" in tokens and "worker" in tokens:
+        return True
+    if "taskiq" in tokens and "worker" in tokens:
+        return True
+    if "dramatiq" in tokens:
+        return True
+    if "arq" in tokens:
+        return True
+    if "rq" in tokens and "worker" in tokens:
+        return True
+    return False
+
+
 def _parse_workers(command: list[str]) -> int | None:
     for index, token in enumerate(command):
         if token == "--workers" and index + 1 < len(command):
@@ -642,6 +664,14 @@ def _service_workload(
         kind = "Job (pre-deploy / init hook)"
         rationale = "Runs migrations and seeding then exits; a run-once workload, not long-running."
         unresolved = ["backoffLimit", "CPU/memory"]
+    elif _is_worker_command(component.command) and not component.container_ports:
+        kind = "Deployment (background worker; no Service)"
+        rationale = (
+            "Background queue worker (Celery/taskiq/arq-style): consumes a broker and exposes no "
+            "inbound port, so it needs a Deployment but NO Service. Scale replicas for throughput; "
+            "readiness is a process/broker-connection check, not an HTTP probe."
+        )
+        unresolved = ["replica count", "CPU/memory"]
     elif image_key == "adminer":
         kind = "Deployment + ClusterIP Service (optional admin tool)"
         rationale = "Optional developer/admin UI; deploy only if needed, keep internal."
