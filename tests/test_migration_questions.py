@@ -259,3 +259,24 @@ def test_brief_renderer_outputs_human_readable_migration_brief(jpetstore_repo):
     assert "- readiness_liveness_probe:" in brief
     assert "## 1. Components" not in brief
     assert "- Basis:" not in brief
+
+
+def test_cli_writes_brief_output_file(jpetstore_repo, tmp_path):
+    from repo_analyzer.cli import main
+
+    brief_path = tmp_path / "brief.md"
+
+    exit_code = main(
+        [
+            "analyze",
+            "--repo",
+            str(jpetstore_repo),
+            "--brief-output",
+            str(brief_path),
+        ]
+    )
+
+    assert exit_code == 0
+    brief = brief_path.read_text(encoding="utf-8")
+    assert brief.startswith("# Kubernetes migration brief - jpetstore-6\n")
+    assert "## Seven migration questions" in brief

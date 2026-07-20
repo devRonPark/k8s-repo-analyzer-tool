@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 
 from .analyzer import analyze_repository
+from .reporters.brief_reporter import write_brief
 from .reporters.json_reporter import to_json, write_json
 from .reporters.markdown_reporter import write_markdown
 
@@ -32,6 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--git-ref", default=None, help="optional commit/ref to record in metadata")
     analyze.add_argument("--json-output", default=None, help="path to write the JSON report")
     analyze.add_argument("--markdown-output", default=None, help="path to write the Markdown report")
+    analyze.add_argument(
+        "--brief-output", default=None, help="path to write the migration brief Markdown"
+    )
     return parser
 
 
@@ -51,7 +55,9 @@ def _run_analyze(args: argparse.Namespace) -> int:
         write_json(result, args.json_output)
     if args.markdown_output:
         write_markdown(result, args.markdown_output)
-    if not args.json_output and not args.markdown_output:
+    if args.brief_output:
+        write_brief(result, args.brief_output)
+    if not args.json_output and not args.markdown_output and not args.brief_output:
         sys.stdout.write(to_json(result))
 
     summary = (
