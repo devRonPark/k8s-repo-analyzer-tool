@@ -629,6 +629,14 @@ def test_live_transcript_injects_brief_and_risk_contract_for_final_answer(monkey
     assert "jdk_version_mismatch" in final_instruction["content"]
     assert "image.signal_handling" in final_instruction["content"]
     assert "preserve not_detected, partial, and unresolved" in final_instruction["content"]
+    assert "Write the final answer in Korean natural-language Markdown" in final_instruction["content"]
+    assert "## 핵심 요약" in final_instruction["content"]
+    assert "## 7문항 답변" in final_instruction["content"]
+    assert "## 경고와 리스크" in final_instruction["content"]
+    assert "## 추가 결정사항" in final_instruction["content"]
+    assert "source material only; do not copy it verbatim" in final_instruction["content"]
+    assert "Do not include raw Evidence: lines" in final_instruction["content"]
+    assert "use '후보' or 'candidate' and do not say it is already configured" in final_instruction["content"]
 
 
 def test_responses_create_wraps_url_errors(monkeypatch):
