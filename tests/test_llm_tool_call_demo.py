@@ -494,6 +494,143 @@ def test_live_transcript_uses_cli_repository_arguments_over_model_arguments(monk
     assert transcript[1]["tool_call"]["arguments"] == seen
 
 
+def test_live_transcript_injects_brief_and_risk_contract_for_final_answer(monkeypatch):
+    module = _load_script()
+    requests = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def read(self):
+            return json.dumps(self._payload).encode("utf-8")
+
+    responses = [
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "analyze_repository",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        },
+        {"choices": [{"message": {"role": "assistant", "content": "final summary"}}]},
+    ]
+
+    def fake_urlopen(request, timeout):
+        requests.append(json.loads(request.data.decode("utf-8")))
+        return FakeResponse(responses.pop(0))
+
+    def fake_analyze_repository(**kwargs):
+        return {
+            "ok": True,
+            "analysis": {
+                "schema_version": "1.0",
+                "repository": {
+                    "name": "jpetstore-6",
+                    "profile": "kubernetes-p0",
+                    "git_ref": None,
+                    "file_count": 8,
+                },
+                "detected_files": [],
+                "source_coverage": [],
+                "migration_questions": [
+                    {
+                        "id": "application_identity",
+                        "question": "어떤 애플리케이션인가?",
+                        "status": "answered",
+                        "answer": "jpetstore: Java 17 web application (WAR)",
+                        "basis": [],
+                        "missing": [],
+                    },
+                    {
+                        "id": "persistent_data",
+                        "question": "어떤 데이터가 영속되어야 하는가?",
+                        "status": "partial",
+                        "answer": "No application PVC was detected.",
+                        "basis": [],
+                        "missing": ["external database persistence decision"],
+                    },
+                ],
+                "components": [],
+                "workload_mappings": [],
+                "networking": [],
+                "configuration": [],
+                "secrets": [],
+                "storage": [],
+                "runtime_dependencies": [],
+                "startup_order": [],
+                "health_checks": [],
+                "build_time_constraints": [],
+                "container_image": [
+                    {
+                        "subject": "image.signal_handling",
+                        "value": "Maven runs as PID 1 (shell form CMD)",
+                        "confidence": "derived",
+                        "kubernetes_effect": "graceful shutdown risk",
+                        "evidence": [],
+                    }
+                ],
+                "unresolved_operational_inputs": [
+                    {
+                        "subject": "replica_count",
+                        "reason": "desired availability is an operational decision",
+                        "needed_input": "target replicas per Deployment",
+                        "kubernetes_effect": "Deployment.spec.replicas",
+                        "no_default_used": True,
+                    }
+                ],
+                "warnings": [
+                    {
+                        "code": "jdk_version_mismatch",
+                        "message": "Dockerfile base image targets Java 25, but the POM builds for Java 17.",
+                        "path": "Dockerfile",
+                    }
+                ],
+                "unsupported_constructs": [],
+            },
+        }
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(module, "analyze_repository", fake_analyze_repository)
+
+    module.run_live_transcript(
+        repository_path="tests/fixtures/jpetstore-6",
+        question="요약해줘",
+        build_system="auto",
+        git_ref=None,
+        model="qwen",
+        base_url="http://sglang-runtime:30000/v1",
+        api_key="dummy",
+    )
+
+    final_instruction = requests[1]["messages"][-1]
+    assert final_instruction["role"] == "user"
+    assert "Kubernetes migration brief - jpetstore-6" in final_instruction["content"]
+    assert "Do not omit warnings or image/runtime risks" in final_instruction["content"]
+    assert "jdk_version_mismatch" in final_instruction["content"]
+    assert "image.signal_handling" in final_instruction["content"]
+    assert "preserve not_detected, partial, and unresolved" in final_instruction["content"]
+
+
 def test_responses_create_wraps_url_errors(monkeypatch):
     module = _load_script()
 

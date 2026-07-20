@@ -21,7 +21,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from integrations.tool import analyze_repository  # noqa: E402
+from repo_analyzer.models import AnalysisResult  # noqa: E402
 from repo_analyzer.parsers.dotenv import parse_dotenv  # noqa: E402
+from repo_analyzer.reporters.brief_reporter import to_brief  # noqa: E402
 
 DEFAULT_QUESTION = (
     "소스 코드를 직접 읽지 않은 개발자가 Kubernetes 이관 큰 그림을 이해할 수 있게 "
@@ -254,6 +256,7 @@ def run_live_transcript(
 
     payload = analyze_repository(**arguments)
     summary = summarize_tool_output(payload)
+    final_answer_instruction = _build_final_answer_instruction(payload)
     assistant_message = {
         "role": "assistant",
         "content": message.get("content"),
@@ -271,6 +274,10 @@ def run_live_transcript(
                     "role": "tool",
                     "tool_call_id": call["id"],
                     "content": json.dumps(payload, ensure_ascii=False),
+                },
+                {
+                    "role": "user",
+                    "content": final_answer_instruction,
                 },
             ],
             "tools": [tool_schema],
@@ -293,6 +300,78 @@ def run_live_transcript(
             "raw_response_id": second.get("id"),
         },
     ]
+
+
+def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
+    if not payload.get("ok"):
+        return (
+            "The repository analyzer returned an error. Report the failed step and error "
+            "from the tool output. Do not replace it with generic Kubernetes advice."
+        )
+
+    analysis = payload.get("analysis") or {}
+    brief = _deterministic_brief(analysis)
+    warnings = _warning_lines(analysis)
+    image_risks = _image_runtime_risk_lines(analysis)
+
+    return "\n".join(
+        [
+            "Use the deterministic analyzer output below as the source of truth for the final answer.",
+            "Do not omit warnings or image/runtime risks.",
+            "Preserve confidence/status wording: preserve not_detected, partial, and unresolved statuses; do not turn missing or unresolved inputs into decided Kubernetes values.",
+            "When a workload mapping is derived, describe it as a candidate, not as a final manifest.",
+            "Do not invent replica counts, CPU/memory, PVC sizes, StorageClass, IngressClass, HPA, PDB, DB HA, backup policy, hosts, TLS, or Secret values.",
+            "",
+            "Deterministic brief:",
+            brief.rstrip(),
+            "",
+            "Warnings:",
+            "\n".join(warnings) if warnings else "- none",
+            "",
+            "Image/runtime risks:",
+            "\n".join(image_risks) if image_risks else "- none",
+        ]
+    )
+
+
+def _deterministic_brief(analysis: dict[str, Any]) -> str:
+    try:
+        return to_brief(AnalysisResult.model_validate(analysis))
+    except Exception:
+        questions = analysis.get("migration_questions") or []
+        if not questions:
+            return "_No migration questions emitted._\n"
+        lines = ["# Kubernetes migration brief - " + str(analysis.get("repository", {}).get("name", "unknown")), ""]
+        for index, question in enumerate(questions, start=1):
+            lines.append(f"### {index}. {question.get('question', question.get('id', 'unknown'))}")
+            lines.append(f"**Status:** {question.get('status', 'unknown')}")
+            lines.append(f"**Answer:** {question.get('answer', '')}")
+            missing = question.get("missing") or []
+            lines.append("**Missing:** " + ("; ".join(missing) if missing else "-"))
+            lines.append("")
+        return "\n".join(lines)
+
+
+def _warning_lines(analysis: dict[str, Any]) -> list[str]:
+    lines = []
+    for warning in analysis.get("warnings") or []:
+        code = warning.get("code", "warning")
+        message = warning.get("message", "")
+        path = warning.get("path")
+        suffix = f" ({path})" if path else ""
+        lines.append(f"- {code}: {message}{suffix}")
+    return lines
+
+
+def _image_runtime_risk_lines(analysis: dict[str, Any]) -> list[str]:
+    lines = []
+    for finding in analysis.get("container_image") or []:
+        subject = finding.get("subject", "container_image")
+        value = finding.get("value", "")
+        confidence = finding.get("confidence", "")
+        effect = finding.get("kubernetes_effect", "")
+        lines.append(f"- {subject}: {value} ({confidence}) - {effect}")
+    return lines
 
 
 def main(argv: list[str] | None = None) -> int:
