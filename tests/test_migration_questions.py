@@ -237,3 +237,25 @@ def test_markdown_renders_migration_questions_with_status_basis_and_missing(jpet
     assert "- Status: `partial`" in report or "- Status: `answered`" in report
     assert "- Basis:" in report
     assert "- Missing:" in report
+
+
+def test_brief_renderer_outputs_human_readable_migration_brief(jpetstore_repo):
+    from repo_analyzer.analyzer import analyze_repository
+    from repo_analyzer.reporters.brief_reporter import to_brief
+
+    result = analyze_repository(str(jpetstore_repo))
+    brief = to_brief(result)
+
+    assert brief.startswith("# Kubernetes migration brief - jpetstore-6\n")
+    assert "## Executive summary" in brief
+    assert "Questions: application_identity=answered" in brief
+    assert "## Seven migration questions" in brief
+    assert "### 1. 어떤 애플리케이션인가?" in brief
+    assert "**Status:** answered" in brief
+    assert "**Answer:** jpetstore: Java 17 web application" in brief
+    assert "**Evidence:** components.jpetstore" in brief
+    assert "### 7. Repository만으로 결정할 수 없는 값은 무엇인가?" in brief
+    assert "## Open inputs" in brief
+    assert "- readiness_liveness_probe:" in brief
+    assert "## 1. Components" not in brief
+    assert "- Basis:" not in brief
