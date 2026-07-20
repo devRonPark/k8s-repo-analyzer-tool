@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -28,6 +30,11 @@ from repo_analyzer.reporters.brief_reporter import to_brief  # noqa: E402
 DEFAULT_QUESTION = (
     "소스 코드를 직접 읽지 않은 개발자가 Kubernetes 이관 큰 그림을 이해할 수 있게 "
     "7개 migration question 중심으로 요약해줘."
+)
+DEFAULT_REPOSITORY_PATH = "tests/fixtures/jpetstore-6"
+DEFAULT_GITHUB_WORKDIR = Path("/tmp/repo-analyzer-github")
+GITHUB_REPO_URL_RE = re.compile(
+    r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?/?"
 )
 MODEL_PREFERENCE_PATTERNS = [
     "gpt-5-mini",
@@ -302,6 +309,53 @@ def run_live_transcript(
     ]
 
 
+def resolve_repository_request(
+    repository_path: str | None,
+    question: str,
+    git_ref: str | None,
+    github_workdir: Path = DEFAULT_GITHUB_WORKDIR,
+) -> tuple[str, str | None]:
+    """Resolve the runtime-owned repository path for a user request."""
+
+    if repository_path:
+        return repository_path, git_ref
+    github_url = extract_github_repo_url(question)
+    if not github_url:
+        return DEFAULT_REPOSITORY_PATH, git_ref
+    repo_dir = clone_or_update_github_url(github_url, github_workdir)
+    return str(repo_dir), git_ref or current_git_commit(repo_dir)
+
+
+def extract_github_repo_url(text: str) -> str | None:
+    match = GITHUB_REPO_URL_RE.search(text)
+    if not match:
+        return None
+    return match.group(0).removesuffix(".git").rstrip("/")
+
+
+def clone_or_update_github_url(repo_url: str, workdir: Path) -> Path:
+    owner, repo = repo_url.removeprefix("https://github.com/").split("/", maxsplit=1)
+    repo_dir = workdir / owner / repo
+    repo_dir.parent.mkdir(parents=True, exist_ok=True)
+    clone_url = repo_url + ".git"
+    if repo_dir.exists():
+        subprocess.run(["git", "-C", str(repo_dir), "fetch", "--depth", "1", "origin"], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "reset", "--hard", "FETCH_HEAD"], check=True)
+        return repo_dir
+    subprocess.run(["git", "clone", "--depth", "1", clone_url, str(repo_dir)], check=True)
+    return repo_dir
+
+
+def current_git_commit(repo_dir: Path) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return completed.stdout.strip()
+
+
 def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
     if not payload.get("ok"):
         return (
@@ -391,7 +445,7 @@ def _image_runtime_risk_lines(analysis: dict[str, Any]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Demonstrate LLM tool-call output.")
-    parser.add_argument("--repo", default="tests/fixtures/jpetstore-6")
+    parser.add_argument("--repo", default=None)
     parser.add_argument("--question", default=DEFAULT_QUESTION)
     parser.add_argument("--build-system", default="auto", choices=["auto", "gradle", "maven"])
     parser.add_argument("--git-ref", default=None)
@@ -408,6 +462,15 @@ def main(argv: list[str] | None = None) -> int:
         help="OpenAI-compatible base URL; overrides OPENAI_BASE_URL from env/.env",
     )
     args = parser.parse_args(argv)
+    try:
+        repository_path, git_ref = resolve_repository_request(
+            args.repo,
+            args.question,
+            args.git_ref,
+        )
+    except subprocess.CalledProcessError as exc:
+        print(f"error: failed to prepare GitHub repository: {exc}", file=sys.stderr)
+        return 2
 
     settings = resolve_openai_settings(
         env_file=Path(args.env_file),
@@ -443,10 +506,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         try:
             transcript = run_live_transcript(
-                repository_path=args.repo,
+                repository_path=repository_path,
                 question=args.question,
                 build_system=args.build_system,
-                git_ref=args.git_ref,
+                git_ref=git_ref,
                 model=model,
                 base_url=base_url,
                 api_key=api_key,
@@ -456,10 +519,10 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     else:
         transcript = build_dry_run_transcript(
-            repository_path=args.repo,
+            repository_path=repository_path,
             question=args.question,
             build_system=args.build_system,
-            git_ref=args.git_ref,
+            git_ref=git_ref,
         )
     print(json.dumps(transcript, ensure_ascii=False, indent=2))
     return 0

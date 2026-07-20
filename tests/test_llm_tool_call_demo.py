@@ -185,6 +185,59 @@ def test_live_mode_uses_env_file_settings(tmp_path, monkeypatch, capsys):
     assert '"stage": "ok"' in capsys.readouterr().out
 
 
+def test_live_mode_resolves_github_url_from_question_when_repo_is_omitted(
+    tmp_path, monkeypatch, capsys
+):
+    module = _load_script()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "OPENAI_BASE_URL=http://compatible-endpoint/v1",
+                "OPENAI_MODEL=file-model",
+            ]
+        )
+    )
+    seen = {}
+
+    def fake_clone(repo_url, workdir):
+        seen["repo_url"] = repo_url
+        seen["workdir"] = workdir
+        return tmp_path / "cloned-jpetstore"
+
+    def fake_current_commit(repo_dir):
+        seen["commit_repo_dir"] = repo_dir
+        return "abc123"
+
+    def fake_run_live_transcript(**kwargs):
+        seen["live"] = kwargs
+        return [{"stage": "ok"}]
+
+    monkeypatch.setattr(module, "clone_or_update_github_url", fake_clone)
+    monkeypatch.setattr(module, "current_git_commit", fake_current_commit)
+    monkeypatch.setattr(module, "run_live_transcript", fake_run_live_transcript)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "live",
+            "--env-file",
+            str(env_file),
+            "--question",
+            "https://github.com/mybatis/jpetstore-6 이거 Kubernetes 이관 관점에서 분석해줘.",
+        ]
+    )
+
+    assert exit_code == 0
+    assert seen["repo_url"] == "https://github.com/mybatis/jpetstore-6"
+    assert seen["live"]["repository_path"] == str(tmp_path / "cloned-jpetstore")
+    assert seen["live"]["git_ref"] == "abc123"
+    assert '"stage": "ok"' in capsys.readouterr().out
+
+
 def test_selects_default_model_from_models_endpoint_response():
     module = _load_script()
 
