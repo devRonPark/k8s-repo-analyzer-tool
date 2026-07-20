@@ -625,18 +625,20 @@ def test_live_transcript_injects_brief_and_risk_contract_for_final_answer(monkey
     final_instruction = requests[1]["messages"][-1]
     assert final_instruction["role"] == "user"
     assert "Kubernetes migration brief - jpetstore-6" in final_instruction["content"]
-    assert "Do not omit warnings or image/runtime risks" in final_instruction["content"]
+    assert "Allowed final-answer content is limited to" in final_instruction["content"]
     assert "jdk_version_mismatch" in final_instruction["content"]
     assert "image.signal_handling" in final_instruction["content"]
-    assert "preserve not_detected, partial, and unresolved" in final_instruction["content"]
+    assert "Use not_detected, partial, and unresolved as explicit status labels" in final_instruction["content"]
     assert "Write the final answer in Korean natural-language Markdown" in final_instruction["content"]
     assert "## 핵심 요약" in final_instruction["content"]
     assert "## 7문항 답변" in final_instruction["content"]
     assert "## 경고와 리스크" in final_instruction["content"]
     assert "## 추가 결정사항" in final_instruction["content"]
-    assert "source material only; do not copy it verbatim" in final_instruction["content"]
-    assert "Do not include raw Evidence: lines" in final_instruction["content"]
-    assert "use '후보' or 'candidate' and do not say it is already configured" in final_instruction["content"]
+    assert "source material for rewriting into the required sections" in final_instruction["content"]
+    assert "Include compact source references only when needed" in final_instruction["content"]
+    assert "use '후보' or 'candidate' for derived workload mappings" in final_instruction["content"]
+    assert "Allowed derived-workload phrasing" in final_instruction["content"]
+    assert "Start each warning/risk bullet with the exact warning code or risk subject" in final_instruction["content"]
     assert "Think and check internally in English" in final_instruction["content"]
     assert "output only the Korean Markdown final answer" in final_instruction["content"]
     assert "<deterministic_brief>" in final_instruction["content"]
@@ -644,6 +646,7 @@ def test_live_transcript_injects_brief_and_risk_contract_for_final_answer(monkey
     assert "<warnings>" in final_instruction["content"]
     assert "<image_runtime_risks>" in final_instruction["content"]
     assert "Before writing the final answer, silently verify" in final_instruction["content"]
+    assert "all final content is inside the allowed scope" in final_instruction["content"]
 
 
 def test_responses_create_wraps_url_errors(monkeypatch):
