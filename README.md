@@ -1,108 +1,94 @@
-# repo-analyzer — Kubernetes P0 Repository Analyzer
+# repo-analyzer — Kubernetes P0 레포지토리 분석기
 
-A **deterministic** tool that reads an application source repository and produces
-the **P0 structural context** an engineer needs to start a Kubernetes migration.
+애플리케이션 소스 레포지토리를 읽어, 엔지니어가 Kubernetes 이관을 시작하는 데 필요한
+**P0 수준의 구조적 맥락**을 산출하는 **결정적(deterministic)** 도구입니다.
 
-The same repository content always produces **byte-identical JSON**. Facts are
-extracted by Python parsers with source-line evidence — no LLM inspects the repo.
-An optional Agent Skill only detects intent, calls this tool, and explains the
-result. See [`DESIGN.md`](./DESIGN.md) for the rationale.
+동일한 레포지토리 내용은 항상 **byte 단위로 동일한 JSON**을 만듭니다. 사실은 source line
+근거를 함께 기록하는 Python parser가 추출하며, **LLM이 레포지토리를 직접 들여다보지
+않습니다.** 선택적으로 제공되는 Agent Skill은 요청 의도를 감지하고, 이 도구를 호출하고,
+결과를 설명하는 얇은 계층일 뿐입니다. 설계 배경은 [`DESIGN.md`](./DESIGN.md)를 참고하세요.
 
-> Scope: the `kubernetes-p0` profile only. This tool does **not** generate
-> Kubernetes/Helm manifests, guess resource sizing, or do P1/P2 analysis.
+> 범위: `kubernetes-p0` 프로파일만 지원합니다. 이 도구는 Kubernetes/Helm manifest를
+> 생성하지 않고, 리소스 사용량을 추측하지 않으며, P1/P2 분석도 하지 않습니다.
 
-## What it analyzes
+## 무엇을 분석하는가
 
-Application components & service topology, images & Dockerfiles, build
-context/args, run command/entrypoint/worker count, container ports & exposed
-hosts, environment variables, Secret candidates, volumes & persistent data,
-health checks, service dependencies & startup order, DB migration/init tasks,
-whether the frontend API URL is build-time or runtime, Kubernetes workload
-drafts, and — importantly — the operational inputs that **cannot** be decided
-from the repository.
+애플리케이션 구성요소와 서비스 토폴로지, image와 Dockerfile, build context/args,
+실행 command/entrypoint/worker 수, container port와 공개 host, 환경 변수, Secret 후보,
+volume과 영속 데이터, healthcheck, 서비스 의존 관계와 시작 순서, DB migration/초기화
+작업, frontend API URL이 build-time인지 runtime인지, Kubernetes workload 초안, 그리고
+무엇보다도 **레포지토리만으로는 결정할 수 없는** 운영 입력값을 분석합니다.
 
-Three stack families are covered today:
+현재 세 가지 스택 계열을 지원합니다.
 
-- **Container/compose stacks** (e.g. FastAPI + Postgres + Nginx): compose
-  services, Dockerfiles, dotenv, Nginx, Python settings. When there is **no
-  deployment compose**, a component is still synthesized from the primary
-  Dockerfile (runtime, `EXPOSE`/`--port`, non-root `USER`, multi-stage targets,
-  migration stage) plus dotenv config/Secret candidates. Compose files under a
-  `documentation/`, `examples/`, `demo/` or `test/` path are treated as
-  demos/samples — **not** the deployment topology — and their services never
-  become workloads. Each service is mapped to the fitting workload: StatefulSet
-  (database/persistent), Job (prestart/init), a **background queue worker**
-  (Celery/taskiq/arq-style command with no inbound port → a Deployment with **no
-  Service**), Nginx static assets, or the default stateless Deployment + ClusterIP
-  Service.
-- **Maven / Java web applications** (e.g. a WAR on an external servlet
-  container): `pom.xml` (packaging, finalName, Java version, dependencies with
-  scope, per-profile application servers), `web.xml` (servlets, listeners,
-  mappings), and Spring application-context datasources (embedded vs external).
-  This surfaces WAR packaging, the external-servlet-container dependency and its
-  Maven-profile alternatives, the non-root HTTP **context path**, embedded
-  (ephemeral) datastores, image-build risks (runtime server download, PID-1
-  signal handling, root user), and Dockerfile↔README↔POM cross-checks
-  (undefined run profile, JDK version mismatch). Spring `application*.yml`/
-  `.properties` (test scopes excluded) also contribute the default **8080** port,
-  per-profile datasources (external DB vs embedded), and datasource/JWT/keystore
-  env classified into **ConfigMap (URL) vs Secret (credentials)** candidates. When
-  the POM ships **`spring-boot-starter-actuator`**, liveness/readiness probe paths
-  are emitted at the `management` base path (default `/actuator`, e.g. jhipster's
-  `/management/health/{liveness,readiness}`); a **`jib-maven-plugin`** is surfaced
-  as a Dockerfile-less image recipe.
-- **Spring Boot / Gradle applications** (e.g. spring-petclinic): `build.gradle`
-  (applied plugins with versions, Java toolchain, dependencies with
-  configuration), `settings.gradle` (project name → artifact name),
-  `gradle-wrapper.properties` (pinned Gradle version),
-  `application*.properties`/`application*.yml` (default vs per-profile
-  datasources, SQL init, Actuator), and the **version catalog**
-  (`gradle/libs.versions.toml`) — `alias(libs.…)` plugins and `libs.…`
-  dependencies are resolved to real coordinates so WebFlux/Actuator/DB drivers
-  are seen. In a multi-module repo the **deployable module** (the one applying
-  the Spring Boot plugin, e.g. `api/`) is analysed, not root, and DB-related
-  facts (H2 default, `SPRING_PROFILES_ACTIVE`, `spring.sql.init`,
-  `production_database_selection`) are emitted **only when the repo actually has
-  a database** — never invented for a DB-less app. This surfaces the
-  **selected build system** (when both Maven and
-  Gradle are present it lists both, records the choice, and how to switch — never
-  "the first `pom.xml`"), the **executable Spring Boot JAR** (`bootJar` vs a plain
-  `jar`, `java -jar`) resolved to the **deployable module's** archive location
-  (e.g. `api/build/libs/api-*.jar` and `./gradlew :api:bootJar` for a submodule,
-  not root `build/libs`), any **`-P` build properties** the script gates on (e.g.
-  `-Pinclude-frontend`) surfaced as build-time constraints, the default **8080** port, the
-  **H2 (default) vs external PostgreSQL/MySQL** profiles with their env vars
-  classified into **ConfigMap (URL) vs Secret (user/password)** candidates,
-  **`spring.sql.init`** startup initialization (idempotent, not Flyway/Liquibase),
-  **Actuator** liveness/readiness probe candidates (with `/livez`,`/readyz` only
-  when `add-additional-paths` is enabled), **`bootBuildImage`** OCI-image build
-  without a Dockerfile, and that the **application needs no PVC** (state lives in
-  the database).
+- **Container/compose 스택** (예: FastAPI + Postgres + Nginx): compose 서비스,
+  Dockerfile, dotenv, Nginx, Python settings를 분석합니다. **배포용 compose가 없는**
+  경우에도 primary Dockerfile(runtime, `EXPOSE`/`--port`, 비-root `USER`, multi-stage
+  target, migration stage)과 dotenv config/Secret 후보로부터 구성요소를 합성합니다.
+  `documentation/`, `examples/`, `demo/`, `test/` 경로 아래의 compose 파일은 배포
+  토폴로지가 **아닌** demo/sample로 취급되어, 그 서비스는 workload가 되지 않습니다.
+  각 서비스는 적합한 workload로 매핑됩니다: StatefulSet(database/영속), Job(prestart/init),
+  **background queue worker**(inbound port 없는 Celery/taskiq/arq 계열 command → Service
+  없는 Deployment), Nginx 정적 자산, 또는 기본 stateless Deployment + ClusterIP Service.
+- **Maven / Java 웹 애플리케이션** (예: 외부 servlet container 위의 WAR): `pom.xml`
+  (packaging, finalName, Java version, scope별 dependency, profile별 application server),
+  `web.xml`(servlet, listener, mapping), Spring application-context datasource(embedded vs
+  external)를 분석합니다. WAR packaging, 외부 servlet container 의존성과 그 Maven profile
+  대안, 비-root HTTP **context path**, embedded(휘발성) datastore, image build 위험
+  (runtime server 다운로드, PID-1 신호 처리, root user), Dockerfile↔README↔POM 교차 검증
+  (미정의 실행 profile, JDK version 불일치)을 드러냅니다. Spring `application*.yml`/
+  `.properties`(test scope 제외)는 기본 **8080** port, profile별 datasource(external DB
+  vs embedded), datasource/JWT/keystore 환경 변수를 **ConfigMap(URL) vs Secret(자격증명)**
+  후보로 분류하는 데도 기여합니다. POM이 **`spring-boot-starter-actuator`**를 포함하면
+  liveness/readiness probe 경로가 `management` base path(기본 `/actuator`, 예: jhipster의
+  `/management/health/{liveness,readiness}`)로 산출되고, **`jib-maven-plugin`**은
+  Dockerfile 없는 image recipe로 드러납니다.
+- **Spring Boot / Gradle 애플리케이션** (예: spring-petclinic): `build.gradle`(적용된
+  plugin과 version, Java toolchain, configuration별 dependency), `settings.gradle`
+  (project 이름 → artifact 이름), `gradle-wrapper.properties`(고정된 Gradle version),
+  `application*.properties`/`application*.yml`(기본 vs profile별 datasource, SQL init,
+  Actuator), 그리고 **version catalog**(`gradle/libs.versions.toml`)를 분석합니다 —
+  `alias(libs.…)` plugin과 `libs.…` dependency는 실제 coordinate로 해석되어
+  WebFlux/Actuator/DB driver를 인식합니다. multi-module 레포에서는 root가 아니라
+  **배포 가능한 module**(Spring Boot plugin을 적용한 module, 예: `api/`)을 분석하며,
+  DB 관련 사실(H2 default, `SPRING_PROFILES_ACTIVE`, `spring.sql.init`,
+  `production_database_selection`)은 **레포에 실제로 database가 있을 때만** 산출합니다 —
+  DB 없는 앱에 대해 지어내지 않습니다. **선택된 build system**(Maven과 Gradle이 둘 다
+  있으면 둘 다 나열하고, 선택 결과와 전환 방법을 기록 — 결코 "첫 번째 `pom.xml`"이 아님),
+  **실행 가능한 Spring Boot JAR**(`bootJar` vs 일반 `jar`, `java -jar`)을 **배포 가능한
+  module**의 archive 위치로 해석한 결과(예: submodule의 `api/build/libs/api-*.jar`와
+  `./gradlew :api:bootJar` — root `build/libs`가 아님), script가 의존하는 **`-P` build
+  property**(예: `-Pinclude-frontend`)를 build-time 제약으로 드러냄, 기본 **8080** port,
+  **H2(기본) vs 외부 PostgreSQL/MySQL** profile과 그 환경 변수를 **ConfigMap(URL) vs
+  Secret(user/password)** 후보로 분류, **`spring.sql.init`** 시작 초기화(멱등적,
+  Flyway/Liquibase 아님), **Actuator** liveness/readiness probe 후보(`add-additional-paths`
+  활성화 시에만 `/livez`,`/readyz`), Dockerfile 없는 **`bootBuildImage`** OCI-image build,
+  그리고 이 **애플리케이션은 PVC가 필요 없다는 사실**(상태는 database에 저장됨)을 드러냅니다.
 
-Every finding is labeled:
+모든 finding에는 다음 라벨이 붙습니다.
 
-- `explicit` — stated directly in a file.
-- `derived` — a conclusion combining ≥2 explicit facts (all sources linked).
-- `unresolved` — cannot be decided from the repo; records why, the input needed,
-  and that no default was invented.
+- `explicit` — 파일에 직접 명시된 사실.
+- `derived` — 2개 이상의 explicit 사실을 결합한 결론(모든 근거를 연결함).
+- `unresolved` — 레포지토리만으로 결정할 수 없음. 이유, 필요한 입력, 그리고 임의
+  기본값을 만들지 않았다는 사실을 기록함.
 
-Values the tool refuses to guess: replica count, CPU/memory, PVC size,
-StorageClass, IngressClass, HPA, PodDisruptionBudget, DB HA/backup.
+이 도구가 추측을 거부하는 값: replica 수, CPU/memory, PVC 크기, StorageClass,
+IngressClass, HPA, PodDisruptionBudget, DB HA/backup.
 
-## Requirements
+## 요구사항
 
 - Python ≥ 3.12
 - [`uv`](https://docs.astral.sh/uv/)
 
-## Install
+## 설치
 
 ```bash
 uv sync
 ```
 
-This creates `.venv` and installs the package (editable) plus dev dependencies.
+`.venv`를 생성하고 패키지(editable)와 dev dependency를 설치합니다.
 
-## Usage (CLI)
+## 사용법 (CLI)
 
 ```bash
 uv run repo-analyzer analyze \
@@ -112,30 +98,30 @@ uv run repo-analyzer analyze \
   --markdown-output ./output/report.md
 ```
 
-- `--repo` (required): path to the repository (read-only; never modified).
-- `--profile`: defaults to `kubernetes-p0` (the only supported profile).
-- `--build-system`: `auto` (default) | `gradle` | `maven`. When a repo ships more
-  than one build system, this forces which one is analyzed; `auto` selects
-  deterministically and records the choice (and how to switch) in the result.
-- `--git-ref`: optional commit/ref recorded in metadata for traceability.
-- With no `--json-output`/`--markdown-output`, the JSON is written to stdout.
+- `--repo` (필수): 레포지토리 경로 (읽기 전용, 절대 수정하지 않음).
+- `--profile`: 기본값 `kubernetes-p0` (지원되는 유일한 profile).
+- `--build-system`: `auto`(기본) | `gradle` | `maven`. 레포에 build system이 둘 이상
+  있을 때 어느 것을 분석할지 강제합니다. `auto`는 결정적으로 선택하고, 그 선택(및 전환
+  방법)을 결과에 기록합니다.
+- `--git-ref`: 추적성을 위해 metadata에 기록할 commit/ref (선택).
+- `--json-output`/`--markdown-output`가 없으면 JSON을 stdout으로 출력합니다.
 
-Try it against a committed golden fixture:
+커밋된 golden fixture로 시험해 볼 수 있습니다.
 
 ```bash
-# compose stack (FastAPI + Postgres + Nginx)
+# compose 스택 (FastAPI + Postgres + Nginx)
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --json-output ./output/analysis.json \
   --markdown-output ./output/report.md
 
-# Maven WAR on an external servlet container (jpetstore-6)
+# 외부 servlet container 위의 Maven WAR (jpetstore-6)
 uv run repo-analyzer analyze \
   --repo tests/fixtures/jpetstore-6 \
   --json-output ./output/jpetstore.json \
   --markdown-output ./output/jpetstore.md
 
-# Spring Boot + Gradle (spring-petclinic; both build systems present, analyze Gradle)
+# Spring Boot + Gradle (spring-petclinic; build system이 둘 다 있어 Gradle을 분석)
 uv run repo-analyzer analyze \
   --repo tests/fixtures/spring-petclinic \
   --build-system gradle \
@@ -143,28 +129,27 @@ uv run repo-analyzer analyze \
   --markdown-output ./output/spring-petclinic.md
 ```
 
-Committed example outputs live in [`examples/`](./examples/).
+커밋된 예시 출력은 [`examples/`](./examples/)에 있습니다.
 
-## Usage (Python / any agent runtime)
+## 사용법 (Python / 임의의 agent runtime)
 
 ```python
 from integrations.tool import analyze_repository
 
 result = analyze_repository("./target-repository", profile="kubernetes-p0")
 if result["ok"]:
-    analysis = result["analysis"]        # JSON-safe dict, full schema
+    analysis = result["analysis"]        # JSON-safe dict, 전체 schema
 else:
-    print(result["error"])               # structured error, never a raise
+    print(result["error"])               # 구조화된 error, 절대 raise하지 않음
 ```
 
-The OpenAI-compatible function schema is in
-[`integrations/tool-schema.json`](./integrations/tool-schema.json). It is
-runtime-agnostic — usable from an OpenShell/Ollama loop or any function-calling
-agent.
+OpenAI 호환 function schema는 [`integrations/tool-schema.json`](./integrations/tool-schema.json)에
+있습니다. runtime에 독립적이라 OpenShell/Ollama loop나 임의의 function-calling agent에서
+사용할 수 있습니다.
 
-## Output schema
+## 출력 schema
 
-The JSON result contains these top-level sections (stable key order):
+JSON 결과는 다음 최상위 section을 포함합니다(안정적인 key 순서).
 
 `schema_version`, `repository`, `detected_files`, `components`,
 `workload_mappings`, `networking`, `configuration`, `secrets`, `storage`,
@@ -172,12 +157,11 @@ The JSON result contains these top-level sections (stable key order):
 `build_time_constraints`, `container_image`, `unresolved_operational_inputs`,
 `warnings`, `unsupported_constructs`.
 
-`runtime_dependencies` lists external services / datastores (or an embedded,
-ephemeral one). `container_image` reports image build/run facts and risks
-(base image, build/start command, runtime server download, signal handling,
-root user).
+`runtime_dependencies`는 외부 서비스/datastore(또는 embedded된 휘발성 datastore)를
+나열합니다. `container_image`는 image build/run 사실과 위험(base image, build/start
+command, runtime server 다운로드, 신호 처리, root user)을 보고합니다.
 
-Each primary finding looks like:
+각 주요 finding은 다음과 같은 형태입니다.
 
 ```json
 {
@@ -192,67 +176,59 @@ Each primary finding looks like:
 }
 ```
 
-The Markdown report is workload-centric and answers the seven P0 questions:
-which components exist, how they map to Kubernetes workloads, what ports/Services
-are needed, what must persist, which ConfigMaps/Secrets are required, what must
-run first, and what cannot be decided from the repo alone.
+Markdown 보고서는 workload 중심으로 작성되며 7가지 P0 질문에 답합니다: 어떤 구성요소가
+있는가, 그것들이 어떤 Kubernetes workload로 매핑되는가, 어떤 port/Service가 필요한가,
+무엇이 영속되어야 하는가, 어떤 ConfigMap/Secret이 필요한가, 무엇이 먼저 실행되어야
+하는가, 그리고 레포지토리만으로는 무엇을 결정할 수 없는가.
 
-## Agent Skill integration
+## Agent Skill 통합
 
-[`skills/kubernetes-repository-analyzer/SKILL.md`](./skills/kubernetes-repository-analyzer/SKILL.md)
-is a thin wrapper. It triggers on migration-analysis intents (e.g. "이 레포를
-Kubernetes로 이관하기 위해 분석해줘", "analyze this repo for Kubernetes migration",
-or `/analyze-k8s-repo <repository-path>`) and explicitly does **not** trigger for
-Dockerfile-syntax questions, generic Kubernetes questions, code refactoring, or
-reviews of existing manifests.
+[`skills/kubernetes-repository-analyzer/SKILL.md`](./skills/kubernetes-repository-analyzer/SKILL.md)는
+얇은 wrapper입니다. 이관 분석 의도(예: "이 레포를 Kubernetes로 이관하기 위해
+분석해줘", "analyze this repo for Kubernetes migration", 또는
+`/analyze-k8s-repo <repository-path>`)에 반응하며, Dockerfile 구문 질문, 일반적인
+Kubernetes 질문, 코드 리팩터링, 기존 manifest 리뷰에는 명시적으로 반응하지 **않습니다.**
 
-Skill rules: call the Python tool first; report only what the tool returned;
-preserve the `explicit`/`derived`/`unresolved` labels; never guess operational
-values; and on failure report the failed step, cause, and file to check rather
-than substituting generic Kubernetes knowledge.
+Skill 규칙: 먼저 Python 도구를 호출하고, 도구가 반환한 것만 보고하며,
+`explicit`/`derived`/`unresolved` 라벨을 보존하고, 운영 값을 추측하지 않으며, 실패
+시에는 일반적인 Kubernetes 지식으로 대체하지 않고 실패한 단계·원인·확인할 파일을
+보고합니다.
 
-## Determinism
+## 결정성
 
-No timestamps, durations, temp paths, absolute paths, random IDs, or unordered
-sets reach the output. Paths are repo-relative POSIX. Lists are ordered. JSON is
-UTF-8, 2-space indented, with intrinsic key order. Identical input → identical
-bytes (enforced by a test).
+timestamp, 소요 시간, 임시 경로, 절대 경로, 무작위 ID, 순서가 없는 set은 출력에 도달하지
+않습니다. 경로는 repo-relative POSIX입니다. list는 정렬되어 있습니다. JSON은 UTF-8,
+2-space indent, 고유한 key 순서를 가집니다. 동일 입력 → 동일 byte(테스트로 강제됨).
 
-## Testing
+## 테스트
 
 ```bash
 uv run pytest
 ```
 
-Coverage includes: a unit test suite per parser (compose, dockerfile, dotenv,
-nginx, python-settings, maven, webxml, spring-xml, **gradle, spring-properties,
-sql-init**), three rule/golden-fixture integration suites (compose stack, Maven
-WAR, **Spring Boot + Gradle**), category-level generalization tests (implicit
-Dockerfile resolution, published-port fallback, Maven-without-compose,
-**build-system selection, Spring Boot facts on a synthetic non-fixture repo**),
-a **k8s-manifest ground-truth comparison** (the analyzer's source-only output vs
-spring-petclinic's own `k8s/` manifests), byte-level determinism tests, "target
-repo is never modified" tests, and missing-file / bad-profile / malformed-input /
-unsupported-construct tests. All fixtures are local; **no test touches the
-network**.
+커버리지: parser별 단위 테스트(compose, dockerfile, dotenv, nginx, python-settings,
+maven, webxml, spring-xml, **gradle, spring-properties, sql-init**), 세 개의 rule/golden
+fixture 통합 suite(compose 스택, Maven WAR, **Spring Boot + Gradle**), category 수준의
+일반화 테스트(implicit Dockerfile 해석, published-port fallback, Maven-without-compose,
+**build-system 선택, 합성 non-fixture 레포에서의 Spring Boot 사실**), **k8s-manifest
+ground-truth 비교**(분석기의 source-only 출력 vs spring-petclinic 자체 `k8s/` manifest),
+byte 단위 결정성 테스트, "target repo는 절대 수정되지 않음" 테스트, 그리고 missing-file /
+bad-profile / malformed-input / unsupported-construct 테스트가 포함됩니다. 모든 fixture는
+로컬이며, **어떤 테스트도 네트워크에 접근하지 않습니다.**
 
-Golden fixtures are pinned local copies of the P0-relevant files:
+Golden fixture는 P0 관련 파일을 고정 커밋으로 로컬 복제한 것입니다.
 
-- `tests/fixtures/full-stack-fastapi/` from
-  [`fastapi/full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template)
+- `tests/fixtures/full-stack-fastapi/` — [`fastapi/full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template)
   @ `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`.
-- `tests/fixtures/jpetstore-6/` from
-  [`mybatis/jpetstore-6`](https://github.com/mybatis/jpetstore-6)
-  @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d` (`mvnw`/`mvnw.cmd` are minimal
-  placeholders — only their presence drives build-tool detection).
-- `tests/fixtures/spring-petclinic/` from
-  [`spring-projects/spring-petclinic`](https://github.com/spring-projects/spring-petclinic)
-  @ `f182358d02e4a68e52bdbabf55ca7800288511e7` (Spring Boot 4.x; ships **both**
-  `build.gradle` and `pom.xml`; `gradlew`/`mvnw` are presence-only placeholders;
-  includes the upstream `k8s/` manifests as ground-truth reference only — the
-  analyzer never reads them).
+- `tests/fixtures/jpetstore-6/` — [`mybatis/jpetstore-6`](https://github.com/mybatis/jpetstore-6)
+  @ `5a7cc780505b88a60779b3e3c0a50b0e404cfb2d` (`mvnw`/`mvnw.cmd`는 최소 placeholder로,
+  build-tool 감지를 위한 존재 여부만 사용됨).
+- `tests/fixtures/spring-petclinic/` — [`spring-projects/spring-petclinic`](https://github.com/spring-projects/spring-petclinic)
+  @ `f182358d02e4a68e52bdbabf55ca7800288511e7` (Spring Boot 4.x; `build.gradle`과
+  `pom.xml`을 **둘 다** 포함; `gradlew`/`mvnw`는 존재 여부만 사용하는 placeholder;
+  upstream `k8s/` manifest를 ground-truth 참조용으로만 포함 — 분석기는 그것을 읽지 않음).
 
-## Project structure
+## 프로젝트 구조
 
 ```text
 .
@@ -261,9 +237,9 @@ Golden fixtures are pinned local copies of the P0-relevant files:
 ├── DESIGN.md
 ├── src/repo_analyzer/
 │   ├── cli.py                 # argparse entry point
-│   ├── models.py              # Pydantic result schema (fixed key order)
-│   ├── inventory.py           # file discovery by name/pattern
-│   ├── analyzer.py            # orchestration (all filesystem reads)
+│   ├── models.py              # Pydantic 결과 schema (고정된 key 순서)
+│   ├── inventory.py           # 이름/패턴 기반 파일 탐색
+│   ├── analyzer.py            # orchestration (모든 filesystem 읽기)
 │   ├── parsers/               # compose, dockerfile, dotenv, nginx, python_settings,
 │   │                          #   maven, webxml, spring_xml, xml_source
 │   ├── rules/                 # kubernetes_p0 (engine) + java_webapp (Maven/WAR rules)
@@ -271,17 +247,17 @@ Golden fixtures are pinned local copies of the P0-relevant files:
 ├── skills/kubernetes-repository-analyzer/SKILL.md
 ├── integrations/
 │   ├── tool.py                # analyze_repository(...) wrapper
-│   └── tool-schema.json       # OpenAI-compatible function schema
-├── examples/                  # committed golden-fixture outputs
+│   └── tool-schema.json       # OpenAI 호환 function schema
+├── examples/                  # 커밋된 golden-fixture 출력
 └── tests/
     ├── fixtures/full-stack-fastapi/
     └── test_*.py
 ```
 
-## Limitations & non-goals
+## 제한사항 및 비-목표
 
-- Compose override files are detected but **not merged** (a warning is emitted);
-  analysis is based on the primary compose file.
-- No manifest/Helm generation, no resource sizing, no P1/P2 analysis.
-- Unsupported syntax is reported (`warnings` / `unsupported_constructs`), never
-  silently ignored.
+- Compose override 파일은 감지되지만 **병합되지 않습니다**(warning 발생). 분석은 primary
+  compose 파일을 기준으로 합니다.
+- manifest/Helm 생성, 리소스 사용량 추측, P1/P2 분석은 하지 않습니다.
+- 지원하지 않는 구문은 조용히 무시하지 않고 보고합니다(`warnings` /
+  `unsupported_constructs`).
