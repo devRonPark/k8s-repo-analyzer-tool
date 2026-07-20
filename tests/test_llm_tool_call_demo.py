@@ -637,6 +637,13 @@ def test_live_transcript_injects_brief_and_risk_contract_for_final_answer(monkey
     assert "source material only; do not copy it verbatim" in final_instruction["content"]
     assert "Do not include raw Evidence: lines" in final_instruction["content"]
     assert "use '후보' or 'candidate' and do not say it is already configured" in final_instruction["content"]
+    assert "Think and check internally in English" in final_instruction["content"]
+    assert "output only the Korean Markdown final answer" in final_instruction["content"]
+    assert "<deterministic_brief>" in final_instruction["content"]
+    assert "</deterministic_brief>" in final_instruction["content"]
+    assert "<warnings>" in final_instruction["content"]
+    assert "<image_runtime_risks>" in final_instruction["content"]
+    assert "Before writing the final answer, silently verify" in final_instruction["content"]
 
 
 def test_responses_create_wraps_url_errors(monkeypatch):
