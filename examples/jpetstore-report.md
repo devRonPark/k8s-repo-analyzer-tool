@@ -137,15 +137,41 @@ Warnings:
 
 _No unsupported constructs._
 
-## Quick answers
+## Migration questions
 
-1. **Components?** jpetstore
-2. **Which workloads?** jpetstore → Deployment + ClusterIP Service + Ingress (context path /jpetstore)
-3. **Ports/Services?** jpetstore:8080
-4. **What must persist?** none
-5. **ConfigMap/Secret?** 0 ConfigMap keys, 0 secret keys
-6. **Init first?** classpath:database/jpetstore-hsqldb-schema.sql; classpath:database/jpetstore-hsqldb-dataload.sql
-7. **External runtime dependencies?** embedded HSQL (in-memory, in-process)
-8. **HTTP context path?** jpetstore:/jpetstore
-9. **Undecidable from repo?** 9 operational inputs (see section 9)
+1. **어떤 애플리케이션인가?**
+   - Status: `answered`
+   - Answer: jpetstore: Java 17 web application (WAR) — requires an external servlet container
+   - Basis: components.jpetstore
+   - Missing: —
+2. **어떻게 빌드하고 실행하는가?**
+   - Status: `answered`
+   - Answer: jpetstore: Maven (mvnw wrapper), build `./mvnw clean package`, run `./mvnw cargo:run -P tomcat90`, Dockerfile `Dockerfile`
+   - Basis: components.jpetstore
+   - Missing: —
+3. **어떤 Port와 Service가 필요한가?**
+   - Status: `answered`
+   - Answer: jpetstore targetPort 8080; jpetstore -> Deployment + ClusterIP Service + Ingress (context path /jpetstore)
+   - Basis: networking.jpetstore.container_port (`docker-compose.yaml:25-25` ($.services.jpetstore.ports[0])); networking.app.context_path (`pom.xml:247-247` (build.finalName); `README.md:61-61` (README)); workload_mappings.jpetstore (`pom.xml:33-33` (packaging); `Dockerfile:1-1` (Dockerfile))
+   - Missing: —
+4. **어떤 외부 의존성이 있는가?**
+   - Status: `answered`
+   - Answer: database.embedded: embedded HSQL (in-memory, in-process)
+   - Basis: runtime_dependencies.database.embedded (`src/main/webapp/WEB-INF/applicationContext.xml:31-34` (jdbc:embedded-database))
+   - Missing: —
+5. **어떤 ConfigMap과 Secret이 필요한가?**
+   - Status: `not_detected`
+   - Answer: No ConfigMap or Secret candidates were detected.
+   - Basis: —
+   - Missing: ConfigMap/Secret candidates were not detected in scanned repository facts
+6. **어떤 데이터가 영속되어야 하는가?**
+   - Status: `partial`
+   - Answer: No application PVC was detected. Database state exists or is implied by runtime dependency: database.embedded: embedded HSQL (in-memory, in-process)
+   - Basis: runtime_dependencies.database.embedded (`src/main/webapp/WEB-INF/applicationContext.xml:31-34` (jdbc:embedded-database))
+   - Missing: external database persistence decision or managed database policy
+7. **Repository만으로 결정할 수 없는 값은 무엇인가?**
+   - Status: `answered`
+   - Answer: readiness_liveness_probe; security_context_run_as_non_root; graceful_shutdown; external_database_for_scaling; replica_count; resource_requests_limits; ingress_class; horizontal_pod_autoscaler; pod_disruption_budget
+   - Basis: unresolved_operational_inputs.readiness_liveness_probe; unresolved_operational_inputs.security_context_run_as_non_root; unresolved_operational_inputs.graceful_shutdown; unresolved_operational_inputs.external_database_for_scaling; unresolved_operational_inputs.replica_count; unresolved_operational_inputs.resource_requests_limits; unresolved_operational_inputs.ingress_class; unresolved_operational_inputs.horizontal_pod_autoscaler; unresolved_operational_inputs.pod_disruption_budget
+   - Missing: an HTTP path or TCP port to probe (e.g. TCP 8080, or GET the context root once warm); target UID/GID and runAsNonRoot policy; an exec-form entrypoint (or tini) and the app's termination behaviour; whether to externalise to a managed/in-cluster DB, and its connection details; target replicas per Deployment (SLO / load expectations); measured or estimated CPU/memory per component; target IngressClass in the destination cluster; scaling metric and min/max replicas; minAvailable/maxUnavailable policy
 

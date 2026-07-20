@@ -31,6 +31,7 @@ from ..parsers.common import Located
 from ..parsers.compose import ComposeFile
 from ..parsers.dockerfile import Dockerfile
 from ..parsers.gradle import GradleBuild
+from ..parsers.readme import ReadmeFile
 from ..parsers.spring_properties import SpringProperties, SpringProperty
 from ..parsers.sql_init import SqlInitScript
 
@@ -94,7 +95,9 @@ def analyze_spring_boot(
     sql_inits: dict[str, SqlInitScript],
     dockerfiles: dict[str, Dockerfile],
     readmes: dict[str, list[str]],
+    readme_facts: dict[str, ReadmeFile] | None = None,
 ) -> None:
+    readme_facts = readme_facts or {}
     name = _component_name(gradle)
     component = Component(name=name, workload_candidate="")
     result.components.append(component)
@@ -109,6 +112,7 @@ def analyze_spring_boot(
     _fill_source_files(component, gradle, gradle_path, inventory, spring_props, sql_inits, readmes)
     _emit_build_system_stack(result, component, gradle, gradle_path, inventory)
     _emit_artifact_and_run(result, component, gradle, gradle_path, inventory)
+    _emit_readme_commands(result, readme_facts)
     _emit_build_properties(result, gradle, gradle_path)
     _emit_port(result, component, gradle, gradle_path, spring_props, readmes)
     _emit_profiles_and_datasources(
@@ -118,6 +122,9 @@ def analyze_spring_boot(
     _emit_actuator_and_probes(result, gradle, gradle_path, default_props)
     _emit_image_build(result, component, gradle, gradle_path, dockerfiles, inventory)
     _emit_storage_pvc(result, component, gradle_path)
+    _emit_application_big_picture(
+        result, component, gradle, gradle_path, sql_inits, profile_props, has_db, readme_facts
+    )
     _emit_workload(result, component, gradle_path)
     _emit_unresolved(result, gradle, gradle_path, profile_props, has_db, _component_name(gradle))
 
@@ -494,6 +501,34 @@ def _emit_build_properties(
     )
 
 
+def _emit_readme_commands(result: AnalysisResult, readme_facts: dict[str, ReadmeFile]) -> None:
+    wanted = {
+        "./gradlew bootRun": "run.command.gradle",
+        "./mvnw spring-boot:run": "run.command.maven",
+        "./mvnw spring-boot:build-image": "image.build_command.maven",
+    }
+    seen: set[str] = set()
+    for path, readme in sorted(readme_facts.items()):
+        for command in readme.commands:
+            value = str(command.value)
+            subject = wanted.get(value)
+            if subject is None or subject in seen:
+                continue
+            seen.add(subject)
+            result.configuration.append(
+                Finding(
+                    subject=subject,
+                    value=value,
+                    confidence="explicit",
+                    kubernetes_effect=(
+                        "README-declared developer/build command; recorded as repository fact, "
+                        "not selected as the production build path"
+                    ),
+                    evidence=[_ev_loc(command, path, "command")],
+                )
+            )
+
+
 def _emit_port(
     result: AnalysisResult,
     component: Component,
@@ -517,6 +552,16 @@ def _emit_port(
                     evidence=[_prop_ev(entry, props.path)],
                 )
             )
+            result.networking.append(
+                Finding(
+                    subject="service.target_port",
+                    value=port,
+                    confidence="explicit",
+                    kubernetes_effect=f"Service targetPort = {port} (the Service `port` itself is an operational choice)",
+                    evidence=[_prop_ev(entry, props.path)],
+                )
+            )
+            _emit_app_service_candidate(result, port, [_prop_ev(entry, props.path)])
             return
 
     # Otherwise the Spring Boot embedded-server default (8080), corroborated by
@@ -547,6 +592,27 @@ def _emit_port(
             value=_DEFAULT_HTTP_PORT,
             confidence="derived",
             kubernetes_effect="Service targetPort = 8080 (the Service `port` itself is an operational choice)",
+            evidence=evidence,
+        )
+    )
+    _emit_app_service_candidate(result, _DEFAULT_HTTP_PORT, evidence)
+
+
+def _emit_app_service_candidate(result: AnalysisResult, target_port: int, evidence: list[Evidence]) -> None:
+    result.networking.append(
+        Finding(
+            subject="service.app",
+            value={
+                "kind": "Service",
+                "target_port": target_port,
+                "port": "unresolved",
+                "type": "unresolved",
+            },
+            confidence="derived",
+            kubernetes_effect=(
+                "Kubernetes Service is needed for the app; targetPort is repository-derived, while "
+                "Service port/type are operational choices."
+            ),
             evidence=evidence,
         )
     )
@@ -589,8 +655,8 @@ def _emit_profiles_and_datasources(
                 value="(unset → default/h2)",
                 confidence="derived",
                 kubernetes_effect=(
-                    "ConfigMap/env key. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch to an "
-                    "external database; unset means the embedded H2 default."
+                    "ConfigMap key candidate. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch "
+                    "to an external database; unset means the embedded H2 default."
                 ),
                 evidence=_profile_evidence(profile_props),
             )
@@ -663,6 +729,23 @@ def _emit_profiles_and_datasources(
                         f"environment variables the '{profile}' profile needs (URL→ConfigMap, "
                         "USER/PASS→Secret), sourced from datasource property placeholders"
                     ),
+                    evidence=[
+                        _prop_ev(e, props.path)
+                        for e in (url, user, pwd)
+                        if e is not None
+                    ],
+                )
+            )
+            result.configuration.append(
+                Finding(
+                    subject=f"profile.{profile}.kubernetes_inputs",
+                    value={
+                        "configmap_keys": ["SPRING_PROFILES_ACTIVE"]
+                        + [name for name in required_env if name.endswith("_URL")],
+                        "secret_keys": [name for name in required_env if not name.endswith("_URL")],
+                    },
+                    confidence="derived",
+                    kubernetes_effect=f"complete env input set to run the '{profile}' profile in Kubernetes",
                     evidence=[
                         _prop_ev(e, props.path)
                         for e in (url, user, pwd)
@@ -960,6 +1043,78 @@ def _emit_storage_pvc(result: AnalysisResult, component: Component, gradle_path:
     )
 
 
+def _emit_application_big_picture(
+    result: AnalysisResult,
+    component: Component,
+    gradle: GradleBuild,
+    gradle_path: str,
+    sql_inits: dict[str, SqlInitScript],
+    profile_props: list[SpringProperties],
+    has_db: bool,
+    readme_facts: dict[str, ReadmeFile],
+) -> None:
+    table_names, table_evidence = _sql_table_names(sql_inits)
+    web = (
+        gradle.find_dependency("org.springframework.boot", "starter-web")
+        or gradle.find_dependency("org.springframework.boot", "starter-webmvc")
+        or gradle.find_dependency("org.springframework.boot", "starter-webflux")
+    )
+    readme_title, readme_desc, readme_evidence = _readme_summary(readme_facts)
+    summary_evidence = readme_evidence
+    if web is not None:
+        summary_evidence.append(_ev_loc(web.location, gradle_path, "dependency"))
+    summary_evidence.extend(table_evidence[:5])
+    runtime_summary = "Spring Boot web application" if web is not None else "Spring Boot application"
+    if readme_title and readme_desc:
+        summary = f"{readme_title} - {readme_desc}. Runtime: {runtime_summary}"
+    elif readme_title:
+        summary = f"{readme_title}. Runtime: {runtime_summary}"
+    else:
+        summary = f"{runtime_summary} named {component.name}"
+    if table_names:
+        summary += " backed by relational tables: " + ", ".join(table_names)
+    result.configuration.append(
+        Finding(
+            subject="application.summary",
+            value=summary,
+            confidence="derived",
+            kubernetes_effect=(
+                "high-level application shape for migration planning, derived from build dependencies and "
+                "repository schema files; it is not a generated manifest."
+            ),
+            evidence=summary_evidence or [_ev(gradle_path, "plugins", 1, 1, "spring-boot")],
+        )
+    )
+    if table_names:
+        result.configuration.append(
+            Finding(
+                subject="application.data_model",
+                value=table_names,
+                confidence="explicit",
+                kubernetes_effect=(
+                    "repository SQL init declares these relational tables; use them as the source-level "
+                    "data-domain inventory when planning database migration."
+                ),
+                evidence=table_evidence,
+            )
+        )
+    if has_db and table_names:
+        profiles = sorted(p.profile for p in profile_props if p.profile)
+        result.storage.append(
+            Finding(
+                subject="storage.database_persistence",
+                value={"profiles": profiles, "tables": table_names},
+                confidence="derived",
+                kubernetes_effect=(
+                    "application state is stored in the selected external database profile. The database "
+                    "needs durable storage or a managed database service; the application Deployment still "
+                    "does not need its own PVC."
+                ),
+                evidence=table_evidence,
+            )
+        )
+
+
 def _emit_workload(result: AnalysisResult, component: Component, gradle_path: str) -> None:
     kind = "Deployment + ClusterIP Service"
     component.workload_candidate = kind
@@ -1010,7 +1165,27 @@ def _emit_unresolved(
                 kubernetes_effect="SPRING_PROFILES_ACTIVE (ConfigMap) + datasource ConfigMap/Secret; external DB Service",
             )
         )
+        additions.append(
+            Unresolved(
+                subject="database_service_endpoint",
+                reason=(
+                    "the repo declares datasource placeholders but does not decide the destination database "
+                    "host/service name, JDBC URL value, or Secret key mapping for the selected profile"
+                ),
+                needed_input="the database service endpoint/JDBC URL and the Secret keys to map into datasource env vars",
+                kubernetes_effect="ConfigMap datasource URL + Secret-backed datasource username/password env",
+            )
+        )
     additions += [
+        Unresolved(
+            subject="service_port_and_type",
+            reason=(
+                "the repository determines the container/service targetPort but not how the app is exposed "
+                "inside or outside the destination cluster"
+            ),
+            needed_input="Service port/type and, if externally exposed, the Ingress/Gateway route",
+            kubernetes_effect="Service.spec.ports[].port, Service.spec.type, and optional Ingress/Gateway",
+        ),
         Unresolved(
             subject="container_image_name",
             reason="bootBuildImage's image name/registry is not pinned in the repo",
@@ -1074,6 +1249,53 @@ def _profile_evidence(profile_props: list[SpringProperties]) -> list[Evidence]:
         if entry is not None:
             ev.append(_prop_ev(entry, props.path))
     return ev
+
+
+def _sql_table_names(sql_inits: dict[str, SqlInitScript]) -> tuple[list[str], list[Evidence]]:
+    names: set[str] = set()
+    evidence: list[Evidence] = []
+    seen_ev: set[tuple[str, str, int]] = set()
+    for path, script in sorted(sql_inits.items()):
+        for table in script.table_names:
+            name = str(table.value)
+            names.add(name)
+            key = (path, name, table.start_line)
+            if key in seen_ev:
+                continue
+            seen_ev.add(key)
+            evidence.append(
+                Evidence(
+                    path=path,
+                    selector=table.selector,
+                    symbol="table",
+                    start_line=table.start_line,
+                    end_line=table.end_line,
+                )
+            )
+    return sorted(names), evidence
+
+
+def _readme_summary(readme_facts: dict[str, ReadmeFile]) -> tuple[str | None, str | None, list[Evidence]]:
+    for path, readme in sorted(readme_facts.items()):
+        evidence: list[Evidence] = []
+        title = None
+        desc = None
+        if readme.title is not None:
+            title = _plain_markdown(str(readme.title.value))
+            evidence.append(_ev_loc(readme.title, path, "readme-title"))
+        if readme.application_description is not None:
+            desc = _plain_markdown(str(readme.application_description.value)).rstrip(".")
+            evidence.append(_ev_loc(readme.application_description, path, "readme-description"))
+        if title or desc:
+            return title, desc, evidence
+    return None, None, []
+
+
+def _plain_markdown(text: str) -> str:
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
 
 def _readme_evidence(readmes: dict[str, list[str]], predicate) -> Evidence | None:

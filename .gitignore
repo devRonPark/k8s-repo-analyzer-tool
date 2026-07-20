@@ -9,6 +9,9 @@ __pycache__/
 # Local analysis output (examples/ is intentionally committed)
 /output/
 
+# Local secrets and OpenAI-compatible endpoint settings
+.env
+
 # Pre-existing agent-memory infrastructure (not part of this tool)
 /.agents/
 /.claude/

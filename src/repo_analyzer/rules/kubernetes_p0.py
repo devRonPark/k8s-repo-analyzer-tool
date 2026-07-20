@@ -13,10 +13,13 @@ import re
 from ..inventory import Inventory
 from ..models import (
     AnalysisResult,
+    AnswerBasis,
     Component,
     Evidence,
     Finding,
+    MigrationQuestionAnswer,
     RepositoryMetadata,
+    SourceCoverage,
     Unresolved,
     UnsupportedConstruct,
     Warning,
@@ -28,9 +31,11 @@ from ..parsers.compose import ComposeFile, ComposeService
 from ..parsers.dockerfile import Dockerfile, exec_form
 from ..parsers.dotenv import DotenvFile
 from ..parsers.gradle import GradleBuild
+from ..parsers.kubernetes_yaml import KubernetesManifest
 from ..parsers.maven import MavenProject
 from ..parsers.nginx import NginxConfig
 from ..parsers.python_settings import PythonSettings
+from ..parsers.readme import ReadmeFile
 from ..parsers.spring_properties import SpringProperties
 from ..parsers.spring_xml import SpringContext
 from ..parsers.sql_init import SqlInitScript
@@ -240,8 +245,10 @@ def analyze_kubernetes_p0(
     spring_props: dict[str, SpringProperties] | None = None,
     sql_inits: dict[str, SqlInitScript] | None = None,
     webapps: dict[str, WebApp] | None = None,
+    kubernetes_manifests: dict[str, KubernetesManifest] | None = None,
     springs: dict[str, SpringContext] | None = None,
     readmes: dict[str, list[str]] | None = None,
+    readme_facts: dict[str, ReadmeFile] | None = None,
     env_usage: dict[str, list[tuple[str, int]]],
 ) -> AnalysisResult:
     mavens = mavens or {}
@@ -249,8 +256,10 @@ def analyze_kubernetes_p0(
     spring_props = spring_props or {}
     sql_inits = sql_inits or {}
     webapps = webapps or {}
+    kubernetes_manifests = kubernetes_manifests or {}
     springs = springs or {}
     readmes = readmes or {}
+    readme_facts = readme_facts or {}
 
     result = AnalysisResult(
         repository=RepositoryMetadata(
@@ -262,10 +271,12 @@ def analyze_kubernetes_p0(
         detected_files=inventory.detected,
     )
 
+    _emit_source_coverage(result, inventory, readmes)
     _collect_unsupported(result, compose, dockerfiles, dotenvs, nginx, settings)
     _collect_spring_unsupported(result, gradles, spring_props)
     _register_spring_detected(result, springs)
     _warn_extra_compose(result, inventory)
+    _emit_kubernetes_manifest_findings(result, kubernetes_manifests)
 
     # No deployment compose and no Java build system. If a Dockerfile exists,
     # synthesize a component from it (image/port/config); otherwise honestly
@@ -276,12 +287,12 @@ def analyze_kubernetes_p0(
             _analyze_config_and_secrets(result, dotenvs)
             _emit_alembic_init(result, inventory)
             _emit_operational_unresolved(result, has_db=False)
-            return result
+            return _finalize_result(result)
         result.warnings.append(
             Warning(code="no_compose", message="no compose file found; component topology unavailable")
         )
         _emit_operational_unresolved(result, has_db=False)
-        return result
+        return _finalize_result(result)
 
     compose_path = inventory.compose_primary or (compose.path if compose else None)
     main_nginx = _main_nginx(nginx)
@@ -320,6 +331,7 @@ def analyze_kubernetes_p0(
                 sql_inits=sql_inits,
                 dockerfiles=dockerfiles,
                 readmes=readmes,
+                readme_facts=readme_facts,
             )
         elif selection.selected == "maven":
             analyze_java_webapp(
@@ -337,7 +349,439 @@ def analyze_kubernetes_p0(
 
     has_db = _has_db(compose) if compose is not None else False
     _emit_operational_unresolved(result, has_db=has_db)
+    return _finalize_result(result)
+
+
+def _finalize_result(result: AnalysisResult) -> AnalysisResult:
+    _emit_source_conflict_warnings(result)
+    _emit_migration_questions(result)
     return result
+
+
+_MIGRATION_QUESTIONS = [
+    ("application_identity", "어떤 애플리케이션인가?"),
+    ("build_and_run", "어떻게 빌드하고 실행하는가?"),
+    ("ports_and_services", "어떤 Port와 Service가 필요한가?"),
+    ("external_dependencies", "어떤 외부 의존성이 있는가?"),
+    ("configmaps_and_secrets", "어떤 ConfigMap과 Secret이 필요한가?"),
+    ("persistent_data", "어떤 데이터가 영속되어야 하는가?"),
+    ("repository_unknowns", "Repository만으로 결정할 수 없는 값은 무엇인가?"),
+]
+
+
+def _basis(source_section: str, subject: str, evidence: list[Evidence] | None = None) -> AnswerBasis:
+    return AnswerBasis(source_section=source_section, subject=subject, evidence=evidence or [])
+
+
+def _emit_migration_questions(result: AnalysisResult) -> None:
+    result.migration_questions = [
+        _question_application_identity(result),
+        _question_build_and_run(result),
+        _question_ports_and_services(result),
+        _question_external_dependencies(result),
+        _question_configmaps_and_secrets(result),
+        _question_persistent_data(result),
+        _question_repository_unknowns(result),
+    ]
+
+
+def _question_application_identity(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[0][1]
+    if not result.components:
+        return MigrationQuestionAnswer(
+            id="application_identity",
+            question=question,
+            status="not_detected",
+            answer="No deployable application component was detected from repository facts.",
+            missing=["deployable build file, Dockerfile, Compose service, or web application descriptor"],
+        )
+    answer = "; ".join(
+        f"{component.name}: {component.runtime or component.language or 'runtime not detected'}"
+        for component in result.components
+    )
+    has_runtime = any(component.runtime or component.language for component in result.components)
+    return MigrationQuestionAnswer(
+        id="application_identity",
+        question=question,
+        status="answered" if has_runtime else "partial",
+        answer=answer,
+        basis=[_basis("components", component.name) for component in result.components],
+        missing=[] if has_runtime else ["application runtime/framework summary"],
+    )
+
+
+def _question_build_and_run(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[1][1]
+    parts: list[str] = []
+    basis: list[AnswerBasis] = []
+    missing: list[str] = []
+    build_findings = [
+        finding
+        for finding in result.configuration
+        if finding.subject.startswith("build.")
+        or finding.subject.startswith("runtime.")
+        or finding.subject.startswith("profile.")
+    ]
+    image_findings = [
+        finding
+        for finding in result.container_image
+        if finding.subject in {"image.dockerfile", "image.build_command", "image.start_command", "image.base"}
+    ]
+    for component in result.components:
+        bits: list[str] = []
+        if component.build_tool:
+            bits.append(component.build_tool)
+        if component.build_command:
+            bits.append(f"build `{component.build_command}`")
+        if component.command:
+            bits.append(f"run `{' '.join(component.command)}`")
+        if component.dockerfile:
+            bits.append(f"Dockerfile `{component.dockerfile}`")
+        if bits:
+            parts.append(f"{component.name}: {', '.join(bits)}")
+            basis.append(_basis("components", component.name))
+        else:
+            missing.append(f"{component.name} build/run command")
+    status = "answered" if parts and not missing else ("partial" if parts else "unresolved")
+    return MigrationQuestionAnswer(
+        id="build_and_run",
+        question=question,
+        status=status,
+        answer="; ".join(parts) if parts else "Build and run commands were not detected.",
+        basis=basis
+        + [_basis("configuration", finding.subject, finding.evidence) for finding in build_findings]
+        + [_basis("container_image", finding.subject, finding.evidence) for finding in image_findings],
+        missing=missing or (["build file, Dockerfile, Compose command, or README run command"] if not parts else []),
+    )
+
+
+def _question_ports_and_services(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[2][1]
+    findings = [
+        finding
+        for finding in result.networking
+        if "port" in finding.subject.lower() or "context_path" in finding.subject
+    ]
+    parts = [
+        f"{component.name} targetPort {', '.join(str(port) for port in component.container_ports)}"
+        for component in result.components
+        if component.container_ports
+    ]
+    if result.workload_mappings:
+        parts.append(
+            "; ".join(
+                f"{mapping.component} -> {mapping.kubernetes_kind}"
+                for mapping in result.workload_mappings
+            )
+        )
+    if findings:
+        parts.extend(f"{finding.subject}: {finding.value}" for finding in findings if finding.subject.startswith("k8s."))
+    missing = [] if parts else ["container port or Service targetPort"]
+    status = "answered" if parts and not missing else ("partial" if parts else "unresolved")
+    return MigrationQuestionAnswer(
+        id="ports_and_services",
+        question=question,
+        status=status,
+        answer="; ".join(parts) if parts else "No port or Service candidate was detected.",
+        basis=[_basis("networking", finding.subject, finding.evidence) for finding in findings]
+        + [_basis("workload_mappings", mapping.component, mapping.evidence) for mapping in result.workload_mappings],
+        missing=missing,
+    )
+
+
+def _question_external_dependencies(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[3][1]
+    if not result.runtime_dependencies:
+        return MigrationQuestionAnswer(
+            id="external_dependencies",
+            question=question,
+            status="not_detected",
+            answer="No external runtime dependency was detected.",
+            missing=["external service evidence may be absent from scanned file classes"],
+        )
+    return MigrationQuestionAnswer(
+        id="external_dependencies",
+        question=question,
+        status="answered",
+        answer="; ".join(f"{finding.subject}: {finding.value}" for finding in result.runtime_dependencies),
+        basis=[
+            _basis("runtime_dependencies", finding.subject, finding.evidence)
+            for finding in result.runtime_dependencies
+        ],
+    )
+
+
+def _question_configmaps_and_secrets(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[4][1]
+    config = [
+        finding
+        for finding in result.configuration
+        if "ConfigMap key candidate" in finding.kubernetes_effect
+        or finding.subject.startswith("k8s.configmap_ref.")
+    ]
+    secrets = result.secrets
+    if not config and not secrets:
+        return MigrationQuestionAnswer(
+            id="configmaps_and_secrets",
+            question=question,
+            status="not_detected",
+            answer="No ConfigMap or Secret candidates were detected.",
+            missing=["ConfigMap/Secret candidates were not detected in scanned repository facts"],
+        )
+    return MigrationQuestionAnswer(
+        id="configmaps_and_secrets",
+        question=question,
+        status="answered",
+        answer=f"ConfigMap candidates: {len(config)}; Secret candidates: {len(secrets)}",
+        basis=[_basis("configuration", finding.subject, finding.evidence) for finding in config]
+        + [_basis("secrets", finding.subject, finding.evidence) for finding in secrets],
+    )
+
+
+def _question_persistent_data(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[5][1]
+    db_deps = [
+        finding
+        for finding in result.runtime_dependencies
+        if "database" in finding.subject.lower()
+    ]
+    basis = [_basis("storage", finding.subject, finding.evidence) for finding in result.storage]
+    basis += [_basis("runtime_dependencies", finding.subject, finding.evidence) for finding in db_deps]
+    if result.storage:
+        return MigrationQuestionAnswer(
+            id="persistent_data",
+            question=question,
+            status="answered",
+            answer="; ".join(f"{finding.subject}: {finding.value}" for finding in result.storage),
+            basis=basis,
+        )
+    if db_deps:
+        answer = (
+            "No application PVC was detected. Database state exists or is implied by runtime dependency: "
+            + "; ".join(f"{finding.subject}: {finding.value}" for finding in db_deps)
+        )
+        return MigrationQuestionAnswer(
+            id="persistent_data",
+            question=question,
+            status="partial",
+            answer=answer,
+            basis=basis,
+            missing=["external database persistence decision or managed database policy"],
+        )
+    return MigrationQuestionAnswer(
+        id="persistent_data",
+        question=question,
+        status="not_detected",
+        answer="No application volume, database, or SQL persistence evidence was detected.",
+        missing=["persistence evidence may be absent from scanned file classes"],
+    )
+
+
+def _question_repository_unknowns(result: AnalysisResult) -> MigrationQuestionAnswer:
+    question = _MIGRATION_QUESTIONS[6][1]
+    if not result.unresolved_operational_inputs:
+        return MigrationQuestionAnswer(
+            id="repository_unknowns",
+            question=question,
+            status="answered",
+            answer="No unresolved operational input was recorded.",
+            missing=["no unresolved operational inputs were recorded"],
+        )
+    return MigrationQuestionAnswer(
+        id="repository_unknowns",
+        question=question,
+        status="answered",
+        answer="; ".join(item.subject for item in result.unresolved_operational_inputs),
+        basis=[
+            _basis("unresolved_operational_inputs", item.subject)
+            for item in result.unresolved_operational_inputs
+        ],
+        missing=[item.needed_input for item in result.unresolved_operational_inputs],
+    )
+
+
+def _emit_source_coverage(
+    result: AnalysisResult, inventory: Inventory, readmes: dict[str, list[str]]
+) -> None:
+    def add(
+        source_class: str,
+        paths: list[str],
+        detection: str,
+        role: str = "primary",
+        status: str | None = None,
+    ) -> None:
+        resolved_status = status or ("present" if paths else "missing")
+        result.source_coverage.append(
+            SourceCoverage(
+                source_class=source_class,
+                status=resolved_status,
+                paths=sorted(paths),
+                role=role,
+                detection=detection,
+            )
+        )
+
+    compose_paths = []
+    if inventory.compose_primary:
+        compose_paths.append(inventory.compose_primary)
+    compose_paths.extend(inventory.compose_extra)
+    selected_ignored = [
+        path for path in inventory.compose_ignored if _path_referenced_by_readme(path, readmes)
+    ]
+    if compose_paths:
+        add(
+            "compose",
+            compose_paths,
+            "compose*.yml/yaml or docker-compose*.yml/yaml filename pattern",
+        )
+    elif selected_ignored:
+        add(
+            "compose",
+            selected_ignored,
+            "compose file under documentation/example path selected by README reference",
+            role="selected_primary",
+            status="present",
+        )
+    elif inventory.compose_ignored:
+        add(
+            "compose",
+            inventory.compose_ignored,
+            "compose filename pattern under documentation/example/test path",
+            role="sample_or_documented_deployment",
+            status="ignored",
+        )
+    else:
+        add("compose", [], "compose filename pattern")
+
+    add("dockerfile", inventory.dockerfiles, "Dockerfile, Dockerfile.*, or *.Dockerfile filename pattern")
+    add(
+        "app_config",
+        inventory.spring_property_files + inventory.spring_yaml_files,
+        "application*.properties/yml/yaml filename pattern",
+    )
+    add("sql", inventory.sql_init_files, ".sql extension plus SQL parser classification")
+    add("kubernetes", inventory.kubernetes_yaml_files, "YAML apiVersion/kind content sniff")
+    if inventory.skipped_large_candidates:
+        add(
+            "skipped_large_candidates",
+            inventory.skipped_large_candidates,
+            "candidate exceeded 10 MiB parse limit",
+            role="supplemental",
+            status="error",
+        )
+    add("web_xml", inventory.web_descriptors, "web.xml filename")
+    add("build_file", inventory.maven_files + inventory.gradle_files, "pom.xml or build.gradle(.kts)")
+    add("readme", inventory.readme_files, "README* filename")
+
+
+def _path_referenced_by_readme(path: str, readmes: dict[str, list[str]]) -> bool:
+    for lines in readmes.values():
+        if any(path in line for line in lines):
+            return True
+    return False
+
+
+def _emit_kubernetes_manifest_findings(
+    result: AnalysisResult,
+    kubernetes_manifests: dict[str, KubernetesManifest],
+) -> None:
+    for path, manifest in kubernetes_manifests.items():
+        for resource in manifest.resources:
+            name = resource.name.value if resource.name else "unnamed"
+            if resource.kind.value == "Service":
+                for port in resource.ports:
+                    result.networking.append(
+                        Finding(
+                            subject=f"k8s.service_port.{name}",
+                            value=port.value,
+                            confidence="explicit",
+                            kubernetes_effect="existing Kubernetes Service port evidence",
+                            evidence=[
+                                Evidence(
+                                    path=path,
+                                    selector=port.selector,
+                                    symbol="k8s.service.port",
+                                    start_line=port.start_line,
+                                    end_line=port.end_line,
+                                )
+                            ],
+                        )
+                    )
+            if resource.kind.value in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
+                for port in resource.ports:
+                    result.networking.append(
+                        Finding(
+                            subject=f"k8s.container_port.{name}",
+                            value=port.value,
+                            confidence="explicit",
+                            kubernetes_effect="existing Kubernetes workload container port evidence",
+                            evidence=[
+                                Evidence(
+                                    path=path,
+                                    selector=port.selector,
+                                    symbol="k8s.container.port",
+                                    start_line=port.start_line,
+                                    end_line=port.end_line,
+                                )
+                            ],
+                        )
+                    )
+            for ref in resource.configmap_refs:
+                result.configuration.append(
+                    Finding(
+                        subject=f"k8s.configmap_ref.{ref.value}",
+                        value=ref.value,
+                        confidence="explicit",
+                        kubernetes_effect="existing Kubernetes ConfigMap reference",
+                        evidence=[
+                            Evidence(
+                                path=path,
+                                selector=ref.selector,
+                                symbol="k8s.configmap_ref",
+                                start_line=ref.start_line,
+                                end_line=ref.end_line,
+                            )
+                        ],
+                    )
+                )
+            for ref in resource.secret_refs:
+                result.secrets.append(
+                    Finding(
+                        subject=f"k8s.secret_ref.{ref.value}",
+                        value=ref.value,
+                        confidence="explicit",
+                        kubernetes_effect="existing Kubernetes Secret reference",
+                        evidence=[
+                            Evidence(
+                                path=path,
+                                selector=ref.selector,
+                                symbol="k8s.secret_ref",
+                                start_line=ref.start_line,
+                                end_line=ref.end_line,
+                            )
+                        ],
+                    )
+                )
+
+
+def _emit_source_conflict_warnings(result: AnalysisResult) -> None:
+    component_ports = {port for component in result.components for port in component.container_ports}
+    manifest_ports = {
+        int(f.value)
+        for f in result.networking
+        if f.subject.startswith("k8s.container_port.") and isinstance(f.value, int)
+    }
+    if component_ports and manifest_ports and component_ports.isdisjoint(manifest_ports):
+        result.warnings.append(
+            Warning(
+                code="source_conflict",
+                message=(
+                    "Kubernetes manifest container ports do not match component/container port evidence; "
+                    f"component ports={sorted(component_ports)}, manifest ports={sorted(manifest_ports)}"
+                ),
+                path=None,
+            )
+        )
 
 
 def _register_spring_detected(result: AnalysisResult, springs: dict[str, SpringContext]) -> None:

@@ -110,12 +110,19 @@ def test_compose_path_surfaces_startup_migration_from_dockerfile(tmp_path) -> No
     assert mig.evidence and mig.evidence[0].path == "Dockerfile"
 
 
-def test_quick_answer_ports_reflects_component_ports(tmp_path) -> None:
-    # The "Ports/Services?" quick answer must not contradict the per-component
-    # ports rendered above it (regression: it previously said "none" whenever the
-    # port came from a derived finding rather than a compose ``.container_port``).
+def test_migration_question_ports_reflects_component_ports(tmp_path) -> None:
+    # The ports/services migration answer must not contradict the per-component
+    # ports rendered above it (regression: the old quick answer previously said
+    # "none" whenever the port came from a derived finding rather than a compose
+    # ``.container_port``).
     result = _make_repo(tmp_path)
     md = to_markdown(result)
-    line = next(ln for ln in md.splitlines() if "Ports/Services?" in ln)
-    assert "3000" in line
-    assert "none" not in line
+    lines = md.splitlines()
+    question_index = next(
+        index
+        for index, line in enumerate(lines)
+        if "어떤 Port와 Service가 필요한가?" in line
+    )
+    answer = next(line for line in lines[question_index:] if "Answer:" in line)
+    assert "3000" in answer
+    assert "none" not in answer

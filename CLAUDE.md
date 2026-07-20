@@ -103,6 +103,13 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
   returns `{"ok": True, "analysis": {...}}` or `{"ok": False, "error": {...}}`
   (never raises for expected errors). Schema: `integrations/tool-schema.json`
   (OpenAI-compatible function tool).
+- **Live LLM demo / SGLang runtime:** `scripts/llm_tool_call_demo.py` must treat
+  SGLang as OpenAI-compatible Chat Completions, not Responses API. If `.env`
+  contains a SGLang server root such as `OPENAI_BASE_URL=http://host:30000`,
+  normalize it to `http://host:30000/v1`; model listing is `GET /v1/models` and
+  tool calls are `POST /v1/chat/completions`. Do not call `/responses` for
+  SGLang. Also do not trust model-supplied `repository_path`, `profile`,
+  `build_system`, or `git_ref`; the CLI/runtime boundary owns those values.
 - **Agent Skill:** `skills/kubernetes-repository-analyzer/SKILL.md` — thin layer;
   must call the Python tool, report only what it returns, preserve confidence
   labels, and on failure report the failed step (never substitute generic K8s

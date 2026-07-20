@@ -33,3 +33,31 @@ def test_data_only_script_has_no_create_tables():
     script = parse_sql_init(text, "db/h2/data.sql")
     assert not script.has_create_tables
     assert not script.is_idempotent
+
+
+def test_classifies_nonstandard_schema_filename_by_create_table():
+    script = parse_sql_init("CREATE TABLE orders (id int);\n", "database/init-v1.sql")
+
+    assert script.script_kind == "schema"
+    assert [t.value for t in script.table_names] == ["orders"]
+
+
+def test_classifies_seed_script_by_insert_statements():
+    script = parse_sql_init(
+        "INSERT INTO account VALUES (1);\n"
+        "insert into orders values (10);\n",
+        "db/load-demo.sql",
+    )
+
+    assert script.script_kind == "data"
+    assert [t.value for t in script.insert_table_names] == ["account", "orders"]
+
+
+def test_classifies_mixed_schema_and_seed_file():
+    script = parse_sql_init(
+        "CREATE TABLE account (id int);\n"
+        "INSERT INTO account VALUES (1);\n",
+        "db/bootstrap.sql",
+    )
+
+    assert script.script_kind == "mixed"

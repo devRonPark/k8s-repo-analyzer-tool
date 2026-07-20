@@ -12,6 +12,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Confidence = Literal["explicit", "derived", "unresolved"]
+QuestionStatus = Literal["answered", "partial", "unresolved", "not_detected"]
+CoverageStatus = Literal["present", "missing", "ignored", "error"]
+CoverageRole = Literal[
+    "primary",
+    "selected_primary",
+    "supplemental",
+    "sample_or_documented_deployment",
+    "test_only",
+]
 
 
 class _Model(BaseModel):
@@ -60,6 +69,29 @@ class Warning(_Model):
     code: str
     message: str
     path: str | None = None
+
+
+class SourceCoverage(_Model):
+    source_class: str
+    status: CoverageStatus
+    paths: list[str] = Field(default_factory=list)
+    role: CoverageRole = "primary"
+    detection: str
+
+
+class AnswerBasis(_Model):
+    source_section: str
+    subject: str
+    evidence: list[Evidence] = Field(default_factory=list)
+
+
+class MigrationQuestionAnswer(_Model):
+    id: str
+    question: str
+    status: QuestionStatus
+    answer: str
+    basis: list[AnswerBasis] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
 
 
 class DetectedFile(_Model):
@@ -125,6 +157,8 @@ class AnalysisResult(_Model):
     schema_version: str = "1.0"
     repository: RepositoryMetadata
     detected_files: list[DetectedFile] = Field(default_factory=list)
+    source_coverage: list[SourceCoverage] = Field(default_factory=list)
+    migration_questions: list[MigrationQuestionAnswer] = Field(default_factory=list)
     components: list[Component] = Field(default_factory=list)
     workload_mappings: list[WorkloadMapping] = Field(default_factory=list)
     networking: list[Finding] = Field(default_factory=list)

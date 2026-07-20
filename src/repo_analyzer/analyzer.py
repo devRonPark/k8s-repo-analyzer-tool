@@ -21,9 +21,11 @@ from .parsers.gradle import (
     parse_gradle_wrapper,
     parse_settings,
 )
+from .parsers.kubernetes_yaml import KubernetesManifest, parse_kubernetes_yaml
 from .parsers.maven import MavenProject, parse_maven
 from .parsers.nginx import NginxConfig, parse_nginx
 from .parsers.python_settings import PythonSettings, parse_python_settings
+from .parsers.readme import ReadmeFile, parse_readme
 from .parsers.spring_properties import SpringProperties, parse_spring_properties
 from .parsers.spring_yaml import parse_spring_yaml
 from .parsers.version_catalog import parse_version_catalog
@@ -139,6 +141,10 @@ def analyze_repository(
     sql_inits: dict[str, SqlInitScript] = {
         rel: parse_sql_init(_read(root, rel), rel) for rel in inventory.sql_init_files
     }
+    kubernetes_manifests: dict[str, KubernetesManifest] = {
+        rel: parse_kubernetes_yaml(_read(root, rel), rel)
+        for rel in inventory.kubernetes_yaml_files
+    }
 
     webapps: dict[str, WebApp] = {
         rel: parse_webxml(_read(root, rel), rel) for rel in inventory.web_descriptors
@@ -150,6 +156,9 @@ def analyze_repository(
             springs[rel] = parsed
     readmes: dict[str, list[str]] = {
         rel: _read(root, rel).splitlines() for rel in inventory.readme_files
+    }
+    readme_facts: dict[str, ReadmeFile] = {
+        rel: parse_readme(_read(root, rel), rel) for rel in inventory.readme_files
     }
 
     build_arg_names = _collect_build_arg_names(compose)
@@ -172,8 +181,10 @@ def analyze_repository(
         spring_props=spring_props,
         sql_inits=sql_inits,
         webapps=webapps,
+        kubernetes_manifests=kubernetes_manifests,
         springs=springs,
         readmes=readmes,
+        readme_facts=readme_facts,
         env_usage=env_usage,
     )
 

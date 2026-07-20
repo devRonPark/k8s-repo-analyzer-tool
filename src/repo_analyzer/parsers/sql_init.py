@@ -1,19 +1,36 @@
-"""Minimal SQL script scanner for schema/data initialization idempotency.
+"""Minimal SQL script scanner for schema/data initialization P0 facts.
 
-Not a SQL parser: it recognises only the guard clauses that make a schema script
-safe to re-run — ``CREATE TABLE IF NOT EXISTS`` and ``DROP TABLE ... IF EXISTS``
-— and reports the line of the first such statement as evidence. It answers one
-P0 question ("is startup SQL init idempotent?"); nothing more.
+Not a SQL parser: it recognises only the small set of schema facts needed for a
+Kubernetes migration overview:
+
+* table names from ``CREATE TABLE`` statements, so the report can say what
+  database data exists without reading application code;
+* guard clauses that make a schema script safe to re-run —
+  ``CREATE TABLE IF NOT EXISTS`` and ``DROP TABLE ... IF EXISTS``.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
+
+from .common import Located
+
+SqlScriptKind = Literal["schema", "data", "mixed", "unknown"]
 
 _CREATE_IF_NOT_EXISTS = re.compile(r"\bcreate\s+table\s+if\s+not\s+exists\b", re.IGNORECASE)
 _DROP_IF_EXISTS = re.compile(r"\bdrop\s+table\b.*\bif\s+exists\b", re.IGNORECASE)
 _CREATE_TABLE = re.compile(r"\bcreate\s+table\b", re.IGNORECASE)
+_CREATE_TABLE_NAME = re.compile(
+    r"\bcreate\s+table\s+(?:if\s+not\s+exists\s+)?"
+    r"(?P<name>(?:[`\"\[]?[\w$]+[`\"\]]?\.)?[`\"\[]?[\w$]+[`\"\]]?)",
+    re.IGNORECASE,
+)
+_INSERT_TABLE_NAME = re.compile(
+    r"\binsert\s+into\s+(?P<name>(?:[`\"\[]?[\w$]+[`\"\]]?\.)?[`\"\[]?[\w$]+[`\"\]]?)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -22,6 +39,20 @@ class SqlInitScript:
     create_table_lines: list[int] = field(default_factory=list)
     idempotent_create_lines: list[int] = field(default_factory=list)
     drop_if_exists_lines: list[int] = field(default_factory=list)
+    table_names: list[Located] = field(default_factory=list)
+    insert_table_names: list[Located] = field(default_factory=list)
+
+    @property
+    def script_kind(self) -> SqlScriptKind:
+        has_schema = bool(self.table_names)
+        has_data = bool(self.insert_table_names)
+        if has_schema and has_data:
+            return "mixed"
+        if has_schema:
+            return "schema"
+        if has_data:
+            return "data"
+        return "unknown"
 
     @property
     def has_create_tables(self) -> bool:
@@ -52,6 +83,20 @@ def parse_sql_init(text: str, path: str) -> SqlInitScript:
     script = SqlInitScript(path=path)
     for index, raw in enumerate(text.splitlines()):
         line_no = index + 1
+        table_match = _CREATE_TABLE_NAME.search(raw)
+        if table_match:
+            name = _normalise_table_name(table_match.group("name"))
+            if name:
+                script.table_names.append(
+                    Located(value=name, selector=f"CREATE TABLE {name}", start_line=line_no, end_line=line_no)
+                )
+        insert_match = _INSERT_TABLE_NAME.search(raw)
+        if insert_match:
+            name = _normalise_table_name(insert_match.group("name"))
+            if name:
+                script.insert_table_names.append(
+                    Located(value=name, selector=f"INSERT INTO {name}", start_line=line_no, end_line=line_no)
+                )
         if _CREATE_IF_NOT_EXISTS.search(raw):
             script.create_table_lines.append(line_no)
             script.idempotent_create_lines.append(line_no)
@@ -60,3 +105,10 @@ def parse_sql_init(text: str, path: str) -> SqlInitScript:
         if _DROP_IF_EXISTS.search(raw):
             script.drop_if_exists_lines.append(line_no)
     return script
+
+
+def _normalise_table_name(raw: str) -> str:
+    name = raw.strip().rstrip("(")
+    if "." in name:
+        name = name.rsplit(".", 1)[-1]
+    return name.strip("`\"[]")

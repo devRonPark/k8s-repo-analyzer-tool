@@ -3,8 +3,8 @@
   "repository": {
     "name": "spring-petclinic",
     "profile": "kubernetes-p0",
-    "git_ref": "f182358d02e4a68e52bdbabf55ca7800288511e7",
-    "file_count": 19
+    "git_ref": null,
+    "file_count": 21
   },
   "detected_files": [
     {
@@ -30,6 +30,14 @@
     {
       "path": "gradlew.bat",
       "kind": "build-wrapper"
+    },
+    {
+      "path": "k8s/db.yml",
+      "kind": "kubernetes-yaml-candidate"
+    },
+    {
+      "path": "k8s/petclinic.yml",
+      "kind": "kubernetes-yaml-candidate"
     },
     {
       "path": "mvnw",
@@ -61,27 +69,842 @@
     },
     {
       "path": "src/main/resources/db/h2/data.sql",
-      "kind": "sql-init"
+      "kind": "sql-candidate"
     },
     {
       "path": "src/main/resources/db/h2/schema.sql",
-      "kind": "sql-init"
+      "kind": "sql-candidate"
     },
     {
       "path": "src/main/resources/db/mysql/data.sql",
-      "kind": "sql-init"
+      "kind": "sql-candidate"
     },
     {
       "path": "src/main/resources/db/mysql/schema.sql",
-      "kind": "sql-init"
+      "kind": "sql-candidate"
     },
     {
       "path": "src/main/resources/db/postgres/data.sql",
-      "kind": "sql-init"
+      "kind": "sql-candidate"
     },
     {
       "path": "src/main/resources/db/postgres/schema.sql",
-      "kind": "sql-init"
+      "kind": "sql-candidate"
+    }
+  ],
+  "source_coverage": [
+    {
+      "source_class": "compose",
+      "status": "present",
+      "paths": [
+        "docker-compose.yml"
+      ],
+      "role": "primary",
+      "detection": "compose*.yml/yaml or docker-compose*.yml/yaml filename pattern"
+    },
+    {
+      "source_class": "dockerfile",
+      "status": "missing",
+      "paths": [],
+      "role": "primary",
+      "detection": "Dockerfile, Dockerfile.*, or *.Dockerfile filename pattern"
+    },
+    {
+      "source_class": "app_config",
+      "status": "present",
+      "paths": [
+        "src/main/resources/application-mysql.properties",
+        "src/main/resources/application-postgres.properties",
+        "src/main/resources/application.properties"
+      ],
+      "role": "primary",
+      "detection": "application*.properties/yml/yaml filename pattern"
+    },
+    {
+      "source_class": "sql",
+      "status": "present",
+      "paths": [
+        "src/main/resources/db/h2/data.sql",
+        "src/main/resources/db/h2/schema.sql",
+        "src/main/resources/db/mysql/data.sql",
+        "src/main/resources/db/mysql/schema.sql",
+        "src/main/resources/db/postgres/data.sql",
+        "src/main/resources/db/postgres/schema.sql"
+      ],
+      "role": "primary",
+      "detection": ".sql extension plus SQL parser classification"
+    },
+    {
+      "source_class": "kubernetes",
+      "status": "present",
+      "paths": [
+        "k8s/db.yml",
+        "k8s/petclinic.yml"
+      ],
+      "role": "primary",
+      "detection": "YAML apiVersion/kind content sniff"
+    },
+    {
+      "source_class": "web_xml",
+      "status": "missing",
+      "paths": [],
+      "role": "primary",
+      "detection": "web.xml filename"
+    },
+    {
+      "source_class": "build_file",
+      "status": "present",
+      "paths": [
+        "build.gradle",
+        "pom.xml"
+      ],
+      "role": "primary",
+      "detection": "pom.xml or build.gradle(.kts)"
+    },
+    {
+      "source_class": "readme",
+      "status": "present",
+      "paths": [
+        "README.md"
+      ],
+      "role": "primary",
+      "detection": "README* filename"
+    }
+  ],
+  "migration_questions": [
+    {
+      "id": "application_identity",
+      "question": "어떤 애플리케이션인가?",
+      "status": "answered",
+      "answer": "mysql: MySQL; postgres: PostgreSQL; spring-petclinic: Spring Boot 4.1.0 application on an embedded servlet container (Tomcat); self-contained executable JAR",
+      "basis": [
+        {
+          "source_section": "components",
+          "subject": "mysql",
+          "evidence": []
+        },
+        {
+          "source_section": "components",
+          "subject": "postgres",
+          "evidence": []
+        },
+        {
+          "source_section": "components",
+          "subject": "spring-petclinic",
+          "evidence": []
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "build_and_run",
+      "question": "어떻게 빌드하고 실행하는가?",
+      "status": "partial",
+      "answer": "spring-petclinic: Gradle 9.5.1 (gradlew wrapper), build `./gradlew clean bootJar`",
+      "basis": [
+        {
+          "source_section": "components",
+          "subject": "spring-petclinic",
+          "evidence": []
+        }
+      ],
+      "missing": [
+        "mysql build/run command",
+        "postgres build/run command"
+      ]
+    },
+    {
+      "id": "ports_and_services",
+      "question": "어떤 Port와 Service가 필요한가?",
+      "status": "answered",
+      "answer": "mysql targetPort 3306; postgres targetPort 5432; spring-petclinic targetPort 8080; mysql -> StatefulSet + headless Service (or external managed database); postgres -> StatefulSet + headless Service (or external managed database); spring-petclinic -> Deployment + ClusterIP Service; k8s.service_port.demo-db: 5432; k8s.container_port.demo-db: 5432; k8s.service_port.petclinic: 80; k8s.service_port.petclinic: 8080; k8s.container_port.petclinic: 8080",
+      "basis": [
+        {
+          "source_section": "networking",
+          "subject": "k8s.service_port.demo-db",
+          "evidence": [
+            {
+              "path": "k8s/db.yml",
+              "selector": "port",
+              "symbol": "k8s.service.port",
+              "start_line": 23,
+              "end_line": 23
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "k8s.container_port.demo-db",
+          "evidence": [
+            {
+              "path": "k8s/db.yml",
+              "selector": "containerPort",
+              "symbol": "k8s.container.port",
+              "start_line": 63,
+              "end_line": 63
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "k8s.service_port.petclinic",
+          "evidence": [
+            {
+              "path": "k8s/petclinic.yml",
+              "selector": "port",
+              "symbol": "k8s.service.port",
+              "start_line": 9,
+              "end_line": 9
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "k8s.service_port.petclinic",
+          "evidence": [
+            {
+              "path": "k8s/petclinic.yml",
+              "selector": "targetPort",
+              "symbol": "k8s.service.port",
+              "start_line": 10,
+              "end_line": 10
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "k8s.container_port.petclinic",
+          "evidence": [
+            {
+              "path": "k8s/petclinic.yml",
+              "selector": "containerPort",
+              "symbol": "k8s.container.port",
+              "start_line": 46,
+              "end_line": 46
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "mysql.container_port",
+          "evidence": [
+            {
+              "path": "docker-compose.yml",
+              "selector": "$.services.mysql.image",
+              "symbol": "image.default_port",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "postgres.container_port",
+          "evidence": [
+            {
+              "path": "docker-compose.yml",
+              "selector": "$.services.postgres.image",
+              "symbol": "image.default_port",
+              "start_line": 15,
+              "end_line": 15
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "app.default_port",
+          "evidence": [
+            {
+              "path": "build.gradle",
+              "selector": "dependency[spring-boot-starter-webmvc]",
+              "symbol": "dependency",
+              "start_line": 37,
+              "end_line": 37
+            },
+            {
+              "path": "README.md",
+              "selector": "README",
+              "symbol": "run-instructions",
+              "start_line": 36,
+              "end_line": 36
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "service.target_port",
+          "evidence": [
+            {
+              "path": "build.gradle",
+              "selector": "dependency[spring-boot-starter-webmvc]",
+              "symbol": "dependency",
+              "start_line": 37,
+              "end_line": 37
+            },
+            {
+              "path": "README.md",
+              "selector": "README",
+              "symbol": "run-instructions",
+              "start_line": 36,
+              "end_line": 36
+            }
+          ]
+        },
+        {
+          "source_section": "workload_mappings",
+          "subject": "mysql",
+          "evidence": [
+            {
+              "path": "docker-compose.yml",
+              "selector": "$.services.mysql",
+              "symbol": "service",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "workload_mappings",
+          "subject": "postgres",
+          "evidence": [
+            {
+              "path": "docker-compose.yml",
+              "selector": "$.services.postgres",
+              "symbol": "service",
+              "start_line": 15,
+              "end_line": 15
+            }
+          ]
+        },
+        {
+          "source_section": "workload_mappings",
+          "subject": "spring-petclinic",
+          "evidence": [
+            {
+              "path": "build.gradle",
+              "selector": "plugins",
+              "symbol": "spring-boot",
+              "start_line": 1,
+              "end_line": 1
+            }
+          ]
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "external_dependencies",
+      "question": "어떤 외부 의존성이 있는가?",
+      "status": "answered",
+      "answer": "database.default: h2 (embedded, in-memory); database.profile.mysql: External MySQL; database.profile.postgres: External PostgreSQL",
+      "basis": [
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.default",
+          "evidence": [
+            {
+              "path": "src/main/resources/application.properties",
+              "selector": "database",
+              "symbol": "property",
+              "start_line": 2,
+              "end_line": 2
+            }
+          ]
+        },
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.profile.mysql",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-mysql.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.profile.postgres",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-postgres.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "configmaps_and_secrets",
+      "question": "어떤 ConfigMap과 Secret이 필요한가?",
+      "status": "answered",
+      "answer": "ConfigMap candidates: 3; Secret candidates: 7",
+      "basis": [
+        {
+          "source_section": "configuration",
+          "subject": "config.SPRING_PROFILES_ACTIVE",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-mysql.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            },
+            {
+              "path": "src/main/resources/application-postgres.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "configuration",
+          "subject": "config.MYSQL_URL",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-mysql.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "configuration",
+          "subject": "config.POSTGRES_URL",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-postgres.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "k8s.secret_ref.demo-db",
+          "evidence": [
+            {
+              "path": "k8s/db.yml",
+              "selector": "secretKeyRef.name",
+              "symbol": "k8s.secret_ref",
+              "start_line": 50,
+              "end_line": 50
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "k8s.secret_ref.demo-db",
+          "evidence": [
+            {
+              "path": "k8s/db.yml",
+              "selector": "secretKeyRef.name",
+              "symbol": "k8s.secret_ref",
+              "start_line": 55,
+              "end_line": 55
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "k8s.secret_ref.demo-db",
+          "evidence": [
+            {
+              "path": "k8s/db.yml",
+              "selector": "secretKeyRef.name",
+              "symbol": "k8s.secret_ref",
+              "start_line": 60,
+              "end_line": 60
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "secret.MYSQL_USER",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-mysql.properties",
+              "selector": "spring.datasource.username",
+              "symbol": "property",
+              "start_line": 4,
+              "end_line": 4
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "secret.MYSQL_PASS",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-mysql.properties",
+              "selector": "spring.datasource.password",
+              "symbol": "property",
+              "start_line": 5,
+              "end_line": 5
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "secret.POSTGRES_USER",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-postgres.properties",
+              "selector": "spring.datasource.username",
+              "symbol": "property",
+              "start_line": 4,
+              "end_line": 4
+            }
+          ]
+        },
+        {
+          "source_section": "secrets",
+          "subject": "secret.POSTGRES_PASS",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-postgres.properties",
+              "selector": "spring.datasource.password",
+              "symbol": "property",
+              "start_line": 5,
+              "end_line": 5
+            }
+          ]
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "persistent_data",
+      "question": "어떤 데이터가 영속되어야 하는가?",
+      "status": "answered",
+      "answer": "storage.application_pvc: not required; storage.database_persistence: {'profiles': ['mysql', 'postgres'], 'tables': ['owners', 'pets', 'specialties', 'types', 'vet_specialties', 'vets', 'visits']}",
+      "basis": [
+        {
+          "source_section": "storage",
+          "subject": "storage.application_pvc",
+          "evidence": [
+            {
+              "path": "build.gradle",
+              "selector": "dependencies",
+              "symbol": "no volume/persistent-file config",
+              "start_line": 1,
+              "end_line": 1
+            }
+          ]
+        },
+        {
+          "source_section": "storage",
+          "subject": "storage.database_persistence",
+          "evidence": [
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE vets",
+              "symbol": "table",
+              "start_line": 10,
+              "end_line": 10
+            },
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE specialties",
+              "symbol": "table",
+              "start_line": 17,
+              "end_line": 17
+            },
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE vet_specialties",
+              "symbol": "table",
+              "start_line": 23,
+              "end_line": 23
+            },
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE types",
+              "symbol": "table",
+              "start_line": 30,
+              "end_line": 30
+            },
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE owners",
+              "symbol": "table",
+              "start_line": 36,
+              "end_line": 36
+            },
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE pets",
+              "symbol": "table",
+              "start_line": 46,
+              "end_line": 46
+            },
+            {
+              "path": "src/main/resources/db/h2/schema.sql",
+              "selector": "CREATE TABLE visits",
+              "symbol": "table",
+              "start_line": 58,
+              "end_line": 58
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE vets",
+              "symbol": "table",
+              "start_line": 1,
+              "end_line": 1
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE specialties",
+              "symbol": "table",
+              "start_line": 8,
+              "end_line": 8
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE vet_specialties",
+              "symbol": "table",
+              "start_line": 14,
+              "end_line": 14
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE types",
+              "symbol": "table",
+              "start_line": 22,
+              "end_line": 22
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE owners",
+              "symbol": "table",
+              "start_line": 28,
+              "end_line": 28
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE pets",
+              "symbol": "table",
+              "start_line": 38,
+              "end_line": 38
+            },
+            {
+              "path": "src/main/resources/db/mysql/schema.sql",
+              "selector": "CREATE TABLE visits",
+              "symbol": "table",
+              "start_line": 50,
+              "end_line": 50
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE vets",
+              "symbol": "table",
+              "start_line": 1,
+              "end_line": 1
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE specialties",
+              "symbol": "table",
+              "start_line": 8,
+              "end_line": 8
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE vet_specialties",
+              "symbol": "table",
+              "start_line": 14,
+              "end_line": 14
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE types",
+              "symbol": "table",
+              "start_line": 20,
+              "end_line": 20
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE owners",
+              "symbol": "table",
+              "start_line": 26,
+              "end_line": 26
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE pets",
+              "symbol": "table",
+              "start_line": 36,
+              "end_line": 36
+            },
+            {
+              "path": "src/main/resources/db/postgres/schema.sql",
+              "selector": "CREATE TABLE visits",
+              "symbol": "table",
+              "start_line": 47,
+              "end_line": 47
+            }
+          ]
+        },
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.default",
+          "evidence": [
+            {
+              "path": "src/main/resources/application.properties",
+              "selector": "database",
+              "symbol": "property",
+              "start_line": 2,
+              "end_line": 2
+            }
+          ]
+        },
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.profile.mysql",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-mysql.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        },
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.profile.postgres",
+          "evidence": [
+            {
+              "path": "src/main/resources/application-postgres.properties",
+              "selector": "spring.datasource.url",
+              "symbol": "property",
+              "start_line": 3,
+              "end_line": 3
+            }
+          ]
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "repository_unknowns",
+      "question": "Repository만으로 결정할 수 없는 값은 무엇인가?",
+      "status": "answered",
+      "answer": "production_database_selection; database_service_endpoint; service_port_and_type; container_image_name; health_probe_additional_paths; startup_probe; graceful_shutdown; security_context_run_as_non_root; replica_count; resource_requests_limits; ingress_class; horizontal_pod_autoscaler; pod_disruption_budget; pvc_size; storage_class; database_ha_and_backup",
+      "basis": [
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "production_database_selection",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "database_service_endpoint",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "service_port_and_type",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "container_image_name",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "health_probe_additional_paths",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "startup_probe",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "graceful_shutdown",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "security_context_run_as_non_root",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "replica_count",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "resource_requests_limits",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "ingress_class",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "horizontal_pod_autoscaler",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "pod_disruption_budget",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "pvc_size",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "storage_class",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "database_ha_and_backup",
+          "evidence": []
+        }
+      ],
+      "missing": [
+        "choose a profile (e.g. postgres or mysql) and supply the JDBC URL + credentials",
+        "the database service endpoint/JDBC URL and the Secret keys to map into datasource env vars",
+        "Service port/type and, if externally exposed, the Ingress/Gateway route",
+        "target image coordinates, e.g. registry/namespace/spring-petclinic:<tag>",
+        "decide whether to expose /livez,/readyz or use /actuator/health/{liveness,readiness}",
+        "expected startup duration to size startupProbe failureThreshold/periodSeconds",
+        "whether to enable graceful shutdown and the drain timeout",
+        "target UID/GID and runAsNonRoot policy",
+        "target replicas per Deployment (SLO / load expectations)",
+        "measured or estimated CPU/memory per component",
+        "target IngressClass in the destination cluster",
+        "scaling metric and min/max replicas",
+        "minAvailable/maxUnavailable policy",
+        "expected data volume / growth for the database PVC",
+        "target StorageClass in the destination cluster",
+        "managed DB vs in-cluster HA, and backup/restore policy"
+      ]
     }
   ],
   "components": [
@@ -313,6 +1136,81 @@
   ],
   "networking": [
     {
+      "subject": "k8s.service_port.demo-db",
+      "value": 5432,
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes Service port evidence",
+      "evidence": [
+        {
+          "path": "k8s/db.yml",
+          "selector": "port",
+          "symbol": "k8s.service.port",
+          "start_line": 23,
+          "end_line": 23
+        }
+      ]
+    },
+    {
+      "subject": "k8s.container_port.demo-db",
+      "value": 5432,
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes workload container port evidence",
+      "evidence": [
+        {
+          "path": "k8s/db.yml",
+          "selector": "containerPort",
+          "symbol": "k8s.container.port",
+          "start_line": 63,
+          "end_line": 63
+        }
+      ]
+    },
+    {
+      "subject": "k8s.service_port.petclinic",
+      "value": 80,
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes Service port evidence",
+      "evidence": [
+        {
+          "path": "k8s/petclinic.yml",
+          "selector": "port",
+          "symbol": "k8s.service.port",
+          "start_line": 9,
+          "end_line": 9
+        }
+      ]
+    },
+    {
+      "subject": "k8s.service_port.petclinic",
+      "value": 8080,
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes Service port evidence",
+      "evidence": [
+        {
+          "path": "k8s/petclinic.yml",
+          "selector": "targetPort",
+          "symbol": "k8s.service.port",
+          "start_line": 10,
+          "end_line": 10
+        }
+      ]
+    },
+    {
+      "subject": "k8s.container_port.petclinic",
+      "value": 8080,
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes workload container port evidence",
+      "evidence": [
+        {
+          "path": "k8s/petclinic.yml",
+          "selector": "containerPort",
+          "symbol": "k8s.container.port",
+          "start_line": 46,
+          "end_line": 46
+        }
+      ]
+    },
+    {
       "subject": "mysql.container_port",
       "value": 3306,
       "confidence": "derived",
@@ -369,6 +1267,33 @@
       "value": 8080,
       "confidence": "derived",
       "kubernetes_effect": "Service targetPort = 8080 (the Service `port` itself is an operational choice)",
+      "evidence": [
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-webmvc]",
+          "symbol": "dependency",
+          "start_line": 37,
+          "end_line": 37
+        },
+        {
+          "path": "README.md",
+          "selector": "README",
+          "symbol": "run-instructions",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    },
+    {
+      "subject": "service.app",
+      "value": {
+        "kind": "Service",
+        "target_port": 8080,
+        "port": "unresolved",
+        "type": "unresolved"
+      },
+      "confidence": "derived",
+      "kubernetes_effect": "Kubernetes Service is needed for the app; targetPort is repository-derived, while Service port/type are operational choices.",
       "evidence": [
         {
           "path": "build.gradle",
@@ -680,10 +1605,55 @@
       ]
     },
     {
+      "subject": "run.command.maven",
+      "value": "./mvnw spring-boot:run",
+      "confidence": "explicit",
+      "kubernetes_effect": "README-declared developer/build command; recorded as repository fact, not selected as the production build path",
+      "evidence": [
+        {
+          "path": "README.md",
+          "selector": "fenced-command",
+          "symbol": "command",
+          "start_line": 28,
+          "end_line": 28
+        }
+      ]
+    },
+    {
+      "subject": "run.command.gradle",
+      "value": "./gradlew bootRun",
+      "confidence": "explicit",
+      "kubernetes_effect": "README-declared developer/build command; recorded as repository fact, not selected as the production build path",
+      "evidence": [
+        {
+          "path": "README.md",
+          "selector": "fenced-command",
+          "symbol": "command",
+          "start_line": 33,
+          "end_line": 33
+        }
+      ]
+    },
+    {
+      "subject": "image.build_command.maven",
+      "value": "./mvnw spring-boot:build-image",
+      "confidence": "explicit",
+      "kubernetes_effect": "README-declared developer/build command; recorded as repository fact, not selected as the production build path",
+      "evidence": [
+        {
+          "path": "README.md",
+          "selector": "fenced-command",
+          "symbol": "command",
+          "start_line": 50,
+          "end_line": 50
+        }
+      ]
+    },
+    {
       "subject": "config.SPRING_PROFILES_ACTIVE",
       "value": "(unset → default/h2)",
       "confidence": "derived",
-      "kubernetes_effect": "ConfigMap/env key. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch to an external database; unset means the embedded H2 default.",
+      "kubernetes_effect": "ConfigMap key candidate. Set SPRING_PROFILES_ACTIVE=postgres or =mysql to switch to an external database; unset means the embedded H2 default.",
       "evidence": [
         {
           "path": "src/main/resources/application-mysql.properties",
@@ -725,6 +1695,44 @@
       ],
       "confidence": "derived",
       "kubernetes_effect": "environment variables the 'mysql' profile needs (URL→ConfigMap, USER/PASS→Secret), sourced from datasource property placeholders",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.username",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        },
+        {
+          "path": "src/main/resources/application-mysql.properties",
+          "selector": "spring.datasource.password",
+          "symbol": "property",
+          "start_line": 5,
+          "end_line": 5
+        }
+      ]
+    },
+    {
+      "subject": "profile.mysql.kubernetes_inputs",
+      "value": {
+        "configmap_keys": [
+          "SPRING_PROFILES_ACTIVE",
+          "MYSQL_URL"
+        ],
+        "secret_keys": [
+          "MYSQL_USER",
+          "MYSQL_PASS"
+        ]
+      },
+      "confidence": "derived",
+      "kubernetes_effect": "complete env input set to run the 'mysql' profile in Kubernetes",
       "evidence": [
         {
           "path": "src/main/resources/application-mysql.properties",
@@ -796,9 +1804,319 @@
           "end_line": 5
         }
       ]
+    },
+    {
+      "subject": "profile.postgres.kubernetes_inputs",
+      "value": {
+        "configmap_keys": [
+          "SPRING_PROFILES_ACTIVE",
+          "POSTGRES_URL"
+        ],
+        "secret_keys": [
+          "POSTGRES_USER",
+          "POSTGRES_PASS"
+        ]
+      },
+      "confidence": "derived",
+      "kubernetes_effect": "complete env input set to run the 'postgres' profile in Kubernetes",
+      "evidence": [
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.url",
+          "symbol": "property",
+          "start_line": 3,
+          "end_line": 3
+        },
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.username",
+          "symbol": "property",
+          "start_line": 4,
+          "end_line": 4
+        },
+        {
+          "path": "src/main/resources/application-postgres.properties",
+          "selector": "spring.datasource.password",
+          "symbol": "property",
+          "start_line": 5,
+          "end_line": 5
+        }
+      ]
+    },
+    {
+      "subject": "application.summary",
+      "value": "Spring PetClinic Sample Application - Spring Petclinic is a Spring Boot application built using Maven or Gradle. Runtime: Spring Boot web application backed by relational tables: owners, pets, specialties, types, vet_specialties, vets, visits",
+      "confidence": "derived",
+      "kubernetes_effect": "high-level application shape for migration planning, derived from build dependencies and repository schema files; it is not a generated manifest.",
+      "evidence": [
+        {
+          "path": "README.md",
+          "selector": "heading.h1",
+          "symbol": "readme-title",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "README.md",
+          "selector": "application-description",
+          "symbol": "readme-description",
+          "start_line": 16,
+          "end_line": 16
+        },
+        {
+          "path": "build.gradle",
+          "selector": "dependency[spring-boot-starter-webmvc]",
+          "symbol": "dependency",
+          "start_line": 37,
+          "end_line": 37
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 10,
+          "end_line": 10
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 17,
+          "end_line": 17
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 23,
+          "end_line": 23
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 30,
+          "end_line": 30
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 36,
+          "end_line": 36
+        }
+      ]
+    },
+    {
+      "subject": "application.data_model",
+      "value": [
+        "owners",
+        "pets",
+        "specialties",
+        "types",
+        "vet_specialties",
+        "vets",
+        "visits"
+      ],
+      "confidence": "explicit",
+      "kubernetes_effect": "repository SQL init declares these relational tables; use them as the source-level data-domain inventory when planning database migration.",
+      "evidence": [
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 10,
+          "end_line": 10
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 17,
+          "end_line": 17
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 23,
+          "end_line": 23
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 30,
+          "end_line": 30
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 36,
+          "end_line": 36
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE pets",
+          "symbol": "table",
+          "start_line": 46,
+          "end_line": 46
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE visits",
+          "symbol": "table",
+          "start_line": 58,
+          "end_line": 58
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 8,
+          "end_line": 8
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 14,
+          "end_line": 14
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 22,
+          "end_line": 22
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 28,
+          "end_line": 28
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE pets",
+          "symbol": "table",
+          "start_line": 38,
+          "end_line": 38
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE visits",
+          "symbol": "table",
+          "start_line": 50,
+          "end_line": 50
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 8,
+          "end_line": 8
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 14,
+          "end_line": 14
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 20,
+          "end_line": 20
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 26,
+          "end_line": 26
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE pets",
+          "symbol": "table",
+          "start_line": 36,
+          "end_line": 36
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE visits",
+          "symbol": "table",
+          "start_line": 47,
+          "end_line": 47
+        }
+      ]
     }
   ],
   "secrets": [
+    {
+      "subject": "k8s.secret_ref.demo-db",
+      "value": "demo-db",
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes Secret reference",
+      "evidence": [
+        {
+          "path": "k8s/db.yml",
+          "selector": "secretKeyRef.name",
+          "symbol": "k8s.secret_ref",
+          "start_line": 50,
+          "end_line": 50
+        }
+      ]
+    },
+    {
+      "subject": "k8s.secret_ref.demo-db",
+      "value": "demo-db",
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes Secret reference",
+      "evidence": [
+        {
+          "path": "k8s/db.yml",
+          "selector": "secretKeyRef.name",
+          "symbol": "k8s.secret_ref",
+          "start_line": 55,
+          "end_line": 55
+        }
+      ]
+    },
+    {
+      "subject": "k8s.secret_ref.demo-db",
+      "value": "demo-db",
+      "confidence": "explicit",
+      "kubernetes_effect": "existing Kubernetes Secret reference",
+      "evidence": [
+        {
+          "path": "k8s/db.yml",
+          "selector": "secretKeyRef.name",
+          "symbol": "k8s.secret_ref",
+          "start_line": 60,
+          "end_line": 60
+        }
+      ]
+    },
     {
       "subject": "secret.MYSQL_USER",
       "value": "<redacted>",
@@ -873,6 +2191,175 @@
           "symbol": "no volume/persistent-file config",
           "start_line": 1,
           "end_line": 1
+        }
+      ]
+    },
+    {
+      "subject": "storage.database_persistence",
+      "value": {
+        "profiles": [
+          "mysql",
+          "postgres"
+        ],
+        "tables": [
+          "owners",
+          "pets",
+          "specialties",
+          "types",
+          "vet_specialties",
+          "vets",
+          "visits"
+        ]
+      },
+      "confidence": "derived",
+      "kubernetes_effect": "application state is stored in the selected external database profile. The database needs durable storage or a managed database service; the application Deployment still does not need its own PVC.",
+      "evidence": [
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 10,
+          "end_line": 10
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 17,
+          "end_line": 17
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 23,
+          "end_line": 23
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 30,
+          "end_line": 30
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 36,
+          "end_line": 36
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE pets",
+          "symbol": "table",
+          "start_line": 46,
+          "end_line": 46
+        },
+        {
+          "path": "src/main/resources/db/h2/schema.sql",
+          "selector": "CREATE TABLE visits",
+          "symbol": "table",
+          "start_line": 58,
+          "end_line": 58
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 8,
+          "end_line": 8
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 14,
+          "end_line": 14
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 22,
+          "end_line": 22
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 28,
+          "end_line": 28
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE pets",
+          "symbol": "table",
+          "start_line": 38,
+          "end_line": 38
+        },
+        {
+          "path": "src/main/resources/db/mysql/schema.sql",
+          "selector": "CREATE TABLE visits",
+          "symbol": "table",
+          "start_line": 50,
+          "end_line": 50
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE vets",
+          "symbol": "table",
+          "start_line": 1,
+          "end_line": 1
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE specialties",
+          "symbol": "table",
+          "start_line": 8,
+          "end_line": 8
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE vet_specialties",
+          "symbol": "table",
+          "start_line": 14,
+          "end_line": 14
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE types",
+          "symbol": "table",
+          "start_line": 20,
+          "end_line": 20
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE owners",
+          "symbol": "table",
+          "start_line": 26,
+          "end_line": 26
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE pets",
+          "symbol": "table",
+          "start_line": 36,
+          "end_line": 36
+        },
+        {
+          "path": "src/main/resources/db/postgres/schema.sql",
+          "selector": "CREATE TABLE visits",
+          "symbol": "table",
+          "start_line": 47,
+          "end_line": 47
         }
       ]
     }
@@ -1227,6 +2714,20 @@
       "reason": "the repo supports an embedded H2 default plus external mysql, postgres profiles; which one to run in production is not decided by the repository",
       "needed_input": "choose a profile (e.g. postgres or mysql) and supply the JDBC URL + credentials",
       "kubernetes_effect": "SPRING_PROFILES_ACTIVE (ConfigMap) + datasource ConfigMap/Secret; external DB Service",
+      "no_default_used": true
+    },
+    {
+      "subject": "database_service_endpoint",
+      "reason": "the repo declares datasource placeholders but does not decide the destination database host/service name, JDBC URL value, or Secret key mapping for the selected profile",
+      "needed_input": "the database service endpoint/JDBC URL and the Secret keys to map into datasource env vars",
+      "kubernetes_effect": "ConfigMap datasource URL + Secret-backed datasource username/password env",
+      "no_default_used": true
+    },
+    {
+      "subject": "service_port_and_type",
+      "reason": "the repository determines the container/service targetPort but not how the app is exposed inside or outside the destination cluster",
+      "needed_input": "Service port/type and, if externally exposed, the Ingress/Gateway route",
+      "kubernetes_effect": "Service.spec.ports[].port, Service.spec.type, and optional Ingress/Gateway",
       "no_default_used": true
     },
     {

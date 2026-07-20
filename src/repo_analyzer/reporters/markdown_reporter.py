@@ -37,7 +37,7 @@ def to_markdown(result: AnalysisResult) -> str:
     _image_section(out, result)
     _unresolved_section(out, result)
     _warnings_section(out, result)
-    _quick_answers_section(out, result)
+    _migration_questions_section(out, result)
 
     return "\n".join(lines) + "\n"
 
@@ -151,7 +151,12 @@ def _storage_section(out, result: AnalysisResult) -> None:
         return
     for f in result.storage:
         value = f.value
-        if isinstance(value, dict):
+        if isinstance(value, dict) and "tables" in value:
+            desc = "database tables: " + ", ".join(value.get("tables") or [])
+            profiles = value.get("profiles") or []
+            if profiles:
+                desc += f" (profiles: {', '.join(profiles)})"
+        elif isinstance(value, dict):
             desc = f"`{value.get('volume')}` at `{value.get('mount_path')}`"
         else:
             desc = str(value)
@@ -304,42 +309,30 @@ def _warnings_section(out, result: AnalysisResult) -> None:
         out("")
 
 
-def _quick_answers_section(out, result: AnalysisResult) -> None:
-    out("## Quick answers")
+def _migration_questions_section(out, result: AnalysisResult) -> None:
+    out("## Migration questions")
     out("")
-    comps = ", ".join(c.name for c in result.components) or "none"
-    out(f"1. **Components?** {comps}")
-    workloads = "; ".join(f"{c.name} → {c.workload_candidate}" for c in result.components) or "none"
-    out(f"2. **Which workloads?** {workloads}")
-    ports = "; ".join(
-        f"{c.name}:{', '.join(str(p) for p in c.container_ports)}"
-        for c in result.components
-        if c.container_ports
-    ) or "none"
-    out(f"3. **Ports/Services?** {ports}")
-    storage = "; ".join(
-        f"{f.value.get('volume')}→{f.value.get('mount_path')}"
-        for f in result.storage
-        if isinstance(f.value, dict)
-    ) or "none"
-    out(f"4. **What must persist?** {storage}")
-    configmap_keys = sum(
-        1 for f in result.configuration if "ConfigMap key candidate" in f.kubernetes_effect
-    )
-    out(f"5. **ConfigMap/Secret?** {configmap_keys} ConfigMap keys, {len(result.secrets)} secret keys")
-    inits = "; ".join(
-        str(f.value)
-        for f in result.startup_order
-        if f.subject in {"startup.migration", "startup.initial_data", "startup.db_init"}
-    ) or "none detected"
-    out(f"6. **Init first?** {inits}")
-    deps = "; ".join(str(f.value) for f in result.runtime_dependencies) or "none"
-    out(f"7. **External runtime dependencies?** {deps}")
-    paths = "; ".join(
-        f"{c.name}:{c.context_path}" for c in result.components if c.context_path
-    ) or "/ (root)"
-    out(f"8. **HTTP context path?** {paths}")
-    out(f"9. **Undecidable from repo?** {len(result.unresolved_operational_inputs)} operational inputs (see section 9)")
+    if not result.migration_questions:
+        out("_No migration question answers emitted._")
+        out("")
+        return
+    for index, question in enumerate(result.migration_questions, start=1):
+        out(f"{index}. **{question.question}**")
+        out(f"   - Status: `{question.status}`")
+        out(f"   - Answer: {question.answer}")
+        if question.basis:
+            basis = "; ".join(
+                f"{basis.source_section}.{basis.subject}"
+                + (f" ({_fmt_evidence(basis.evidence)})" if basis.evidence else "")
+                for basis in question.basis
+            )
+            out(f"   - Basis: {basis}")
+        else:
+            out("   - Basis: —")
+        if question.missing:
+            out(f"   - Missing: {'; '.join(question.missing)}")
+        else:
+            out("   - Missing: —")
     out("")
 
 

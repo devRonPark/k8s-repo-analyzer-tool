@@ -40,6 +40,286 @@
       "kind": "web-descriptor"
     }
   ],
+  "source_coverage": [
+    {
+      "source_class": "compose",
+      "status": "present",
+      "paths": [
+        "docker-compose.yaml"
+      ],
+      "role": "primary",
+      "detection": "compose*.yml/yaml or docker-compose*.yml/yaml filename pattern"
+    },
+    {
+      "source_class": "dockerfile",
+      "status": "present",
+      "paths": [
+        "Dockerfile"
+      ],
+      "role": "primary",
+      "detection": "Dockerfile, Dockerfile.*, or *.Dockerfile filename pattern"
+    },
+    {
+      "source_class": "app_config",
+      "status": "missing",
+      "paths": [],
+      "role": "primary",
+      "detection": "application*.properties/yml/yaml filename pattern"
+    },
+    {
+      "source_class": "sql",
+      "status": "missing",
+      "paths": [],
+      "role": "primary",
+      "detection": ".sql extension plus SQL parser classification"
+    },
+    {
+      "source_class": "kubernetes",
+      "status": "missing",
+      "paths": [],
+      "role": "primary",
+      "detection": "YAML apiVersion/kind content sniff"
+    },
+    {
+      "source_class": "web_xml",
+      "status": "present",
+      "paths": [
+        "src/main/webapp/WEB-INF/web.xml"
+      ],
+      "role": "primary",
+      "detection": "web.xml filename"
+    },
+    {
+      "source_class": "build_file",
+      "status": "present",
+      "paths": [
+        "pom.xml"
+      ],
+      "role": "primary",
+      "detection": "pom.xml or build.gradle(.kts)"
+    },
+    {
+      "source_class": "readme",
+      "status": "present",
+      "paths": [
+        "README.md"
+      ],
+      "role": "primary",
+      "detection": "README* filename"
+    }
+  ],
+  "migration_questions": [
+    {
+      "id": "application_identity",
+      "question": "어떤 애플리케이션인가?",
+      "status": "answered",
+      "answer": "jpetstore: Java 17 web application (WAR) — requires an external servlet container",
+      "basis": [
+        {
+          "source_section": "components",
+          "subject": "jpetstore",
+          "evidence": []
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "build_and_run",
+      "question": "어떻게 빌드하고 실행하는가?",
+      "status": "answered",
+      "answer": "jpetstore: Maven (mvnw wrapper), build `./mvnw clean package`, run `./mvnw cargo:run -P tomcat90`, Dockerfile `Dockerfile`",
+      "basis": [
+        {
+          "source_section": "components",
+          "subject": "jpetstore",
+          "evidence": []
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "ports_and_services",
+      "question": "어떤 Port와 Service가 필요한가?",
+      "status": "answered",
+      "answer": "jpetstore targetPort 8080; jpetstore -> Deployment + ClusterIP Service + Ingress (context path /jpetstore)",
+      "basis": [
+        {
+          "source_section": "networking",
+          "subject": "jpetstore.container_port",
+          "evidence": [
+            {
+              "path": "docker-compose.yaml",
+              "selector": "$.services.jpetstore.ports[0]",
+              "symbol": "ports.published",
+              "start_line": 25,
+              "end_line": 25
+            }
+          ]
+        },
+        {
+          "source_section": "networking",
+          "subject": "app.context_path",
+          "evidence": [
+            {
+              "path": "pom.xml",
+              "selector": "build.finalName",
+              "symbol": "finalName",
+              "start_line": 247,
+              "end_line": 247
+            },
+            {
+              "path": "README.md",
+              "selector": "README",
+              "symbol": "run-instructions",
+              "start_line": 61,
+              "end_line": 61
+            }
+          ]
+        },
+        {
+          "source_section": "workload_mappings",
+          "subject": "jpetstore",
+          "evidence": [
+            {
+              "path": "pom.xml",
+              "selector": "packaging",
+              "symbol": "packaging",
+              "start_line": 33,
+              "end_line": 33
+            },
+            {
+              "path": "Dockerfile",
+              "selector": "Dockerfile",
+              "symbol": "build",
+              "start_line": 1,
+              "end_line": 1
+            }
+          ]
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "external_dependencies",
+      "question": "어떤 외부 의존성이 있는가?",
+      "status": "answered",
+      "answer": "database.embedded: embedded HSQL (in-memory, in-process)",
+      "basis": [
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.embedded",
+          "evidence": [
+            {
+              "path": "src/main/webapp/WEB-INF/applicationContext.xml",
+              "selector": "jdbc:embedded-database",
+              "symbol": "jdbc:embedded-database",
+              "start_line": 31,
+              "end_line": 34
+            }
+          ]
+        }
+      ],
+      "missing": []
+    },
+    {
+      "id": "configmaps_and_secrets",
+      "question": "어떤 ConfigMap과 Secret이 필요한가?",
+      "status": "not_detected",
+      "answer": "No ConfigMap or Secret candidates were detected.",
+      "basis": [],
+      "missing": [
+        "ConfigMap/Secret candidates were not detected in scanned repository facts"
+      ]
+    },
+    {
+      "id": "persistent_data",
+      "question": "어떤 데이터가 영속되어야 하는가?",
+      "status": "partial",
+      "answer": "No application PVC was detected. Database state exists or is implied by runtime dependency: database.embedded: embedded HSQL (in-memory, in-process)",
+      "basis": [
+        {
+          "source_section": "runtime_dependencies",
+          "subject": "database.embedded",
+          "evidence": [
+            {
+              "path": "src/main/webapp/WEB-INF/applicationContext.xml",
+              "selector": "jdbc:embedded-database",
+              "symbol": "jdbc:embedded-database",
+              "start_line": 31,
+              "end_line": 34
+            }
+          ]
+        }
+      ],
+      "missing": [
+        "external database persistence decision or managed database policy"
+      ]
+    },
+    {
+      "id": "repository_unknowns",
+      "question": "Repository만으로 결정할 수 없는 값은 무엇인가?",
+      "status": "answered",
+      "answer": "readiness_liveness_probe; security_context_run_as_non_root; graceful_shutdown; external_database_for_scaling; replica_count; resource_requests_limits; ingress_class; horizontal_pod_autoscaler; pod_disruption_budget",
+      "basis": [
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "readiness_liveness_probe",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "security_context_run_as_non_root",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "graceful_shutdown",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "external_database_for_scaling",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "replica_count",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "resource_requests_limits",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "ingress_class",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "horizontal_pod_autoscaler",
+          "evidence": []
+        },
+        {
+          "source_section": "unresolved_operational_inputs",
+          "subject": "pod_disruption_budget",
+          "evidence": []
+        }
+      ],
+      "missing": [
+        "an HTTP path or TCP port to probe (e.g. TCP 8080, or GET the context root once warm)",
+        "target UID/GID and runAsNonRoot policy",
+        "an exec-form entrypoint (or tini) and the app's termination behaviour",
+        "whether to externalise to a managed/in-cluster DB, and its connection details",
+        "target replicas per Deployment (SLO / load expectations)",
+        "measured or estimated CPU/memory per component",
+        "target IngressClass in the destination cluster",
+        "scaling metric and min/max replicas",
+        "minAvailable/maxUnavailable policy"
+      ]
+    }
+  ],
   "components": [
     {
       "name": "jpetstore",

@@ -7,6 +7,7 @@ exists and what kind is it", using repo-relative POSIX paths for determinism.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -41,6 +42,21 @@ _COMPOSE_PRIMARY_ORDER = [
 _SHELL_INIT_NAMES = {"prestart.sh", "entrypoint.sh", "start.sh", "run.sh", "docker-entrypoint.sh"}
 _SETTINGS_NAMES = {"config.py", "settings.py"}
 _BUILD_WRAPPER_NAMES = {"mvnw", "mvnw.cmd", "gradlew", "gradlew.bat"}
+MAX_CANDIDATE_BYTES = 10 * 1024 * 1024
+
+_K8S_KIND_RE = re.compile(r"(?m)^\s*kind\s*:\s*[\"']?(?P<kind>[A-Za-z][A-Za-z0-9]*)[\"']?\s*$")
+_K8S_KINDS = {
+    "Deployment",
+    "StatefulSet",
+    "DaemonSet",
+    "Service",
+    "Ingress",
+    "ConfigMap",
+    "Secret",
+    "Job",
+    "CronJob",
+    "PersistentVolumeClaim",
+}
 
 
 @dataclass
@@ -63,6 +79,8 @@ class Inventory:
     spring_property_files: list[str] = field(default_factory=list)
     spring_yaml_files: list[str] = field(default_factory=list)
     sql_init_files: list[str] = field(default_factory=list)
+    kubernetes_yaml_files: list[str] = field(default_factory=list)
+    skipped_large_candidates: list[str] = field(default_factory=list)
     web_descriptors: list[str] = field(default_factory=list)
     spring_xml_files: list[str] = field(default_factory=list)
     readme_files: list[str] = field(default_factory=list)
@@ -147,8 +165,29 @@ def _is_spring_yaml(name: str) -> bool:
     )
 
 
-def _is_sql_init(name: str) -> bool:
-    return name in ("schema.sql", "data.sql")
+def _is_sql_candidate(name: str) -> bool:
+    return name.lower().endswith(".sql")
+
+
+def _too_large_for_candidate_parse(path: Path) -> bool:
+    try:
+        return path.stat().st_size > MAX_CANDIDATE_BYTES
+    except OSError:
+        return False
+
+
+def _looks_like_kubernetes_yaml(path: Path) -> bool:
+    if path.suffix.lower() not in {".yml", ".yaml"}:
+        return False
+    if _too_large_for_candidate_parse(path):
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    if "apiVersion:" not in text or "kind:" not in text:
+        return False
+    return any(match.group("kind") in _K8S_KINDS for match in _K8S_KIND_RE.finditer(text))
 
 
 _SPRING_XML_NAME_HINTS = ("applicationcontext", "spring")
@@ -210,8 +249,11 @@ def build_inventory(root: Path) -> Inventory:
             inv.spring_property_files.append(rel)
         elif _is_spring_yaml(name):
             inv.spring_yaml_files.append(rel)
-        elif _is_sql_init(name):
-            inv.sql_init_files.append(rel)
+        elif _is_sql_candidate(name):
+            if _too_large_for_candidate_parse(path):
+                inv.skipped_large_candidates.append(rel)
+            else:
+                inv.sql_init_files.append(rel)
         elif name == "web.xml":
             inv.web_descriptors.append(rel)
         elif name in _BUILD_WRAPPER_NAMES:
@@ -220,6 +262,12 @@ def build_inventory(root: Path) -> Inventory:
             inv.readme_files.append(rel)
         if name != "web.xml" and _is_spring_xml_candidate(rel, name):
             inv.spring_xml_files.append(rel)
+        if path.suffix.lower() in {".yml", ".yaml"}:
+            if _too_large_for_candidate_parse(path):
+                if rel not in inv.skipped_large_candidates:
+                    inv.skipped_large_candidates.append(rel)
+            elif _looks_like_kubernetes_yaml(path):
+                inv.kubernetes_yaml_files.append(rel)
 
     deployment_composes = [c for c in compose_candidates if not _is_nondeployment_compose(c)]
     inv.compose_ignored = sorted(c for c in compose_candidates if _is_nondeployment_compose(c))
@@ -263,7 +311,15 @@ def _build_detected(inv: Inventory, compose_candidates: list[str]) -> list[Detec
     detected += [DetectedFile(path=p, kind="version-catalog") for p in inv.version_catalog_files]
     detected += [DetectedFile(path=p, kind="spring-properties") for p in inv.spring_property_files]
     detected += [DetectedFile(path=p, kind="spring-yaml") for p in inv.spring_yaml_files]
-    detected += [DetectedFile(path=p, kind="sql-init") for p in inv.sql_init_files]
+    detected += [DetectedFile(path=p, kind="sql-candidate") for p in inv.sql_init_files]
+    detected += [
+        DetectedFile(path=p, kind="kubernetes-yaml-candidate")
+        for p in inv.kubernetes_yaml_files
+    ]
+    detected += [
+        DetectedFile(path=p, kind="candidate-skipped-large")
+        for p in inv.skipped_large_candidates
+    ]
     detected += [DetectedFile(path=p, kind="web-descriptor") for p in inv.web_descriptors]
     detected += [DetectedFile(path=p, kind="build-wrapper") for p in inv.build_wrappers]
     detected += [DetectedFile(path=p, kind="readme") for p in inv.readme_files]

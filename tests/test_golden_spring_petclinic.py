@@ -62,6 +62,15 @@ def test_gradle_wrapper_and_tasks(spring_petclinic_repo):
     assert _config(result, "build.command.test").value == "./gradlew test"
 
 
+def test_readme_run_commands_are_available_without_switching_build_system(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    subjects = {f.subject: f for f in result.configuration}
+    assert subjects["build.system"].value == "gradle"
+    assert subjects["run.command.gradle"].value == "./gradlew bootRun"
+    assert subjects["run.command.maven"].value == "./mvnw spring-boot:run"
+    assert subjects["image.build_command.maven"].value == "./mvnw spring-boot:build-image"
+
+
 def test_executable_jar_artifact(spring_petclinic_repo):
     result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
     assert _config(result, "build.artifact_type").value == "executable-jar"
@@ -82,6 +91,24 @@ def test_default_port_8080_with_evidence(spring_petclinic_repo):
     assert port.evidence  # web starter + README corroboration
     assert _in_section(result, "networking", "service.target_port").value == 8080
     assert _app(result).container_ports == [8080]
+
+
+def test_service_exposure_is_unresolved_not_guessed(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    subjects = {u.subject for u in result.unresolved_operational_inputs}
+    assert "service_port_and_type" in subjects
+
+
+def test_app_service_candidate_separates_target_port_from_operational_exposure(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    service = _in_section(result, "networking", "service.app")
+    assert service.value == {
+        "kind": "Service",
+        "target_port": 8080,
+        "port": "unresolved",
+        "type": "unresolved",
+    }
+    assert service.confidence == "derived"
 
 
 # --------------------------------------------------------------------------- #
@@ -117,10 +144,55 @@ def test_required_env_classified_configmap_vs_secret(spring_petclinic_repo):
     assert "POSTGRES_URL" in app.environment and "POSTGRES_URL" not in app.secret_candidates
 
 
+def test_profile_kubernetes_inputs_group_configmap_and_secret_keys(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    pg = _config(result, "profile.postgres.kubernetes_inputs")
+    assert pg.value == {
+        "configmap_keys": ["SPRING_PROFILES_ACTIVE", "POSTGRES_URL"],
+        "secret_keys": ["POSTGRES_USER", "POSTGRES_PASS"],
+    }
+    profile = _config(result, "config.SPRING_PROFILES_ACTIVE")
+    assert "ConfigMap key candidate" in profile.kubernetes_effect
+
+
 def test_production_database_selection_is_unresolved(spring_petclinic_repo):
     result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
     subjects = {u.subject for u in result.unresolved_operational_inputs}
     assert "production_database_selection" in subjects
+    assert "database_service_endpoint" in subjects
+
+
+def test_application_big_picture_from_repository_facts(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    summary = _config(result, "application.summary")
+    assert summary is not None
+    assert "Spring Boot web application" in summary.value
+    assert "owners" in summary.value and "pets" in summary.value and "visits" in summary.value
+
+    model = _config(result, "application.data_model")
+    assert model is not None
+    assert model.value == [
+        "owners",
+        "pets",
+        "specialties",
+        "types",
+        "vet_specialties",
+        "vets",
+        "visits",
+    ]
+    assert {ev.path for ev in model.evidence} >= {
+        "src/main/resources/db/mysql/schema.sql",
+        "src/main/resources/db/postgres/schema.sql",
+    }
+
+
+def test_readme_application_description_is_surfaced(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    summary = _config(result, "application.summary")
+    assert summary is not None
+    assert "Spring PetClinic Sample Application" in summary.value
+    assert "Spring Boot" in summary.value
+    assert "Maven" in summary.value and "Gradle" in summary.value
 
 
 # --------------------------------------------------------------------------- #
@@ -162,6 +234,25 @@ def test_application_pvc_not_required(spring_petclinic_repo):
     pvc = _in_section(result, "storage", "storage.application_pvc")
     assert pvc.value == "not required"
     assert pvc.confidence == "derived"
+
+
+def test_database_data_must_persist(spring_petclinic_repo):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    persistence = _in_section(result, "storage", "storage.database_persistence")
+    assert persistence is not None
+    assert persistence.value == {
+        "profiles": ["mysql", "postgres"],
+        "tables": [
+            "owners",
+            "pets",
+            "specialties",
+            "types",
+            "vet_specialties",
+            "vets",
+            "visits",
+        ],
+    }
+    assert "database" in persistence.kubernetes_effect.lower()
 
 
 def test_workload_is_deployment_plus_service(spring_petclinic_repo):
