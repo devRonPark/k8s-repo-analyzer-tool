@@ -95,7 +95,8 @@ uv run repo-analyzer analyze \
   --repo ./target-repository \
   --profile kubernetes-p0 \
   --json-output ./output/analysis.json \
-  --markdown-output ./output/report.md
+  --markdown-output ./output/report.md \
+  --brief-output ./output/brief.md
 ```
 
 - `--repo` (필수): 레포지토리 경로 (읽기 전용, 절대 수정하지 않음).
@@ -104,7 +105,9 @@ uv run repo-analyzer analyze \
   있을 때 어느 것을 분석할지 강제합니다. `auto`는 결정적으로 선택하고, 그 선택(및 전환
   방법)을 결과에 기록합니다.
 - `--git-ref`: 추적성을 위해 metadata에 기록할 commit/ref (선택).
-- `--json-output`/`--markdown-output`가 없으면 JSON을 stdout으로 출력합니다.
+- `--json-output`/`--markdown-output`/`--brief-output`가 모두 없으면 JSON을 stdout으로
+  출력합니다.
+- `--brief-output`: 7문항 migration JSON만 사람이 읽기 좋은 Markdown brief로 씁니다.
 
 커밋된 golden fixture로 시험해 볼 수 있습니다.
 
