@@ -1,5 +1,13 @@
 from repo_analyzer.analyzer import analyze_repository
-from repo_analyzer.rules.kubernetes_p0 import _published_port_number
+from repo_analyzer.models import (
+    AnalysisResult,
+    Component,
+    Evidence,
+    Finding,
+    RepositoryMetadata,
+    WorkloadMapping,
+)
+from repo_analyzer.rules.kubernetes_p0 import _published_port_number, _workload_profile
 
 
 def _profile(result, name):
@@ -100,6 +108,68 @@ def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
     assert not any(
         rel.source == "frontend" and rel.target == "backend"
         for rel in frontend.runtime_deployment_profile.relationships
+    )
+    assert (
+        "Resolve the target for build-time constraint frontend.vite_api_url_binding before deployment."
+        in frontend.runtime_deployment_profile.open_decisions
+    )
+
+
+def test_workload_profile_does_not_infer_build_target_from_evidence_path():
+    frontend = Component(name="frontend", workload_candidate="Deployment")
+    result = AnalysisResult(
+        repository=RepositoryMetadata(name="example", profile="test", file_count=0),
+        components=[frontend, Component(name="backend", workload_candidate="Deployment")],
+        build_time_constraints=[
+            Finding(
+                subject="frontend.vite_api_url_binding",
+                value="build-time",
+                confidence="derived",
+                kubernetes_effect="requires an image rebuild",
+                evidence=[
+                    Evidence(
+                        path="frontend/backend/reference.txt",
+                        selector="VITE_API_URL",
+                        start_line=1,
+                        end_line=1,
+                    )
+                ],
+            )
+        ],
+    )
+
+    profile = _workload_profile(frontend, None, result, profile_count=2)
+
+    assert not profile.runtime_deployment_profile.relationships
+    assert profile.runtime_deployment_profile.open_decisions == [
+        "Resolve the target for build-time constraint frontend.vite_api_url_binding before deployment."
+    ]
+
+
+def test_workload_profile_omits_runtime_dependency_without_matching_finding():
+    backend = Component(
+        name="backend", workload_candidate="Deployment", runtime_dependencies=["database"]
+    )
+    mapping_evidence = Evidence(
+        path="compose.yml", selector="$.services.backend", start_line=1, end_line=1
+    )
+    result = AnalysisResult(
+        repository=RepositoryMetadata(name="example", profile="test", file_count=0),
+        components=[backend, Component(name="database", workload_candidate="StatefulSet")],
+    )
+    mapping = WorkloadMapping(
+        component="backend",
+        kubernetes_kind="Deployment",
+        confidence="explicit",
+        rationale="fixture mapping",
+        evidence=[mapping_evidence],
+    )
+
+    profile = _workload_profile(backend, mapping, result, profile_count=2)
+
+    assert not any(
+        relationship.relationship_type == "runtime_dependency"
+        for relationship in profile.runtime_deployment_profile.relationships
     )
 
 

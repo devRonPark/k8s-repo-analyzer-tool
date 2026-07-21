@@ -514,6 +514,17 @@ def _workload_relationships(
     for dependency in component.runtime_dependencies:
         if dependency not in component_names or dependency == component.name:
             continue
+        runtime_finding = next(
+            (
+                finding
+                for finding in result.runtime_dependencies
+                if finding.subject == f"{component.name}.runtime_dependency"
+                and finding.value == dependency
+            ),
+            None,
+        )
+        if runtime_finding is None:
+            continue
         relationships.append(
             WorkloadRelationship(
                 source=component.name,
@@ -521,51 +532,19 @@ def _workload_relationships(
                 relationship_type="runtime_dependency",
                 evidence_type="runtime_dependency",
                 description=f"{component.name} has a runtime dependency on {dependency}.",
-                confidence="derived",
-                evidence=list(mapping_evidence),
+                confidence=runtime_finding.confidence,
+                evidence=list(runtime_finding.evidence),
             )
         )
 
     for finding in result.build_time_constraints:
         if not finding.subject.startswith(f"{component.name}."):
             continue
-        targets = [
-            target
-            for target in sorted(component_names - {component.name})
-            if _finding_names_component(finding, target)
-        ]
-        if not targets:
-            open_decisions.append(
-                f"Resolve the target for build-time constraint {finding.subject} before deployment."
-            )
-            continue
-        for target in targets:
-            relationships.append(
-                WorkloadRelationship(
-                    source=component.name,
-                    target=target,
-                    relationship_type="build_time_binding",
-                    evidence_type="build_time_constraint",
-                    description=(
-                        f"{finding.subject} binds {component.name} to {target} at image build time."
-                    ),
-                    confidence=finding.confidence,
-                    evidence=list(finding.evidence),
-                )
-            )
+        open_decisions.append(
+            f"Resolve the target for build-time constraint {finding.subject} before deployment."
+        )
 
     return relationships, _dedupe(open_decisions)
-
-
-def _finding_names_component(finding: Finding, component_name: str) -> bool:
-    pattern = rf"(?<![A-Za-z0-9_-]){re.escape(component_name)}(?![A-Za-z0-9_-])"
-    values = [finding.subject, str(finding.value)]
-    values.extend(
-        value
-        for evidence in finding.evidence
-        for value in (evidence.selector, evidence.path)
-    )
-    return any(re.search(pattern, value) for value in values)
 
 
 def _component_findings(component: Component, result: AnalysisResult) -> dict[str, list[Finding]]:
