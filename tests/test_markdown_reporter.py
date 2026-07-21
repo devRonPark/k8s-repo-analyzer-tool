@@ -92,4 +92,9 @@ def test_markdown_reporter_scopes_missing_relationships_to_scanned_repository_fa
 
     markdown = to_markdown(result)
 
+    assert (
+        "_No workload controller candidates detected in scanned repository facts._"
+        in markdown
+    )
+    assert "_No companion object candidates detected in scanned repository facts._" in markdown
     assert "_No workload relationships detected in scanned repository facts._" in markdown

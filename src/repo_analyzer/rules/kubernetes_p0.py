@@ -672,7 +672,11 @@ def _exposure_candidates(
             ExposureCandidate(
                 port=port,
                 source="container_port",
-                evidence_type=_evidence_type(evidence, "component_source"),
+                evidence_type=_evidence_type(
+                    evidence,
+                    "component_source",
+                    finding.subject if finding else None,
+                ),
                 confidence=finding.confidence if finding else "derived",
                 service_candidate=service_candidate,
                 description=f"{component.name} container port candidate",
@@ -703,7 +707,11 @@ def _exposure_candidates(
             ExposureCandidate(
                 port=port,
                 source="published_port",
-                evidence_type=_evidence_type(evidence, "compose_port"),
+                evidence_type=_evidence_type(
+                    evidence,
+                    "component_source",
+                    finding.subject if finding else None,
+                ),
                 confidence=finding.confidence if finding else "explicit",
                 service_candidate=service_candidate,
                 description=f"{component.name} published compose port candidate",
@@ -763,7 +771,8 @@ def _kubernetes_candidates(
     elif "Deployment" in kind_text:
         candidates.append(_kubernetes_candidate("Deployment", "workload_controller", "component_source", confidence, rationale, mapping_evidence))
 
-    service_evidence = _finding_evidence(findings["networking"])
+    service_findings = _service_port_findings(component, findings["networking"])
+    service_evidence = _finding_evidence(service_findings)
     if (
         "Service" in kind_text
         and "no service" not in kind_text.lower()
@@ -771,7 +780,7 @@ def _kubernetes_candidates(
         and service_evidence
     ):
         evidence = service_evidence
-        candidates.append(_kubernetes_candidate("Service", "companion_object", _evidence_type(evidence, "component_source"), confidence, "inbound port evidence supports a Service candidate", evidence))
+        candidates.append(_kubernetes_candidate("Service", "companion_object", _evidence_type(evidence, "component_source", service_findings[0].subject), confidence, "inbound port evidence supports a Service candidate", evidence))
     for finding in findings["storage"]:
         if finding.subject.endswith("persistent_volume"):
             candidates.append(_kubernetes_candidate("PVC", "companion_object", "compose_volume", finding.confidence, "persistent compose volume requires a PVC candidate", finding.evidence))
@@ -818,14 +827,44 @@ def _service_candidate_allowed(component: Component) -> bool:
 
 
 def _published_port_number(spec: str) -> int | None:
-    segments = spec.split("/", 1)[0].split(":")
-    token = segments[-2] if len(segments) > 1 else segments[-1]
+    segments = spec.strip().split("/", 1)[0].split(":")
+    if len(segments) < 2:
+        return None
+    token = segments[-2]
     return int(token) if token.isdigit() else None
 
 
-def _evidence_type(evidence: list[Evidence], fallback: str) -> str:
-    if any(e.path.endswith(("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml")) for e in evidence):
-        return "compose_port" if fallback == "component_source" else fallback
+def _service_port_findings(
+    component: Component, networking: list[Finding]
+) -> list[Finding]:
+    subjects = {
+        f"{component.name}.container_port",
+        f"{component.name}.published_port",
+        "app.server_port",
+        "app.default_port",
+        "service.target_port",
+    }
+    return [finding for finding in networking if finding.subject in subjects]
+
+
+def _evidence_type(
+    evidence: list[Evidence], fallback: str, finding_subject: str | None = None
+) -> str:
+    is_port_finding = finding_subject in {
+        "app.server_port",
+        "app.default_port",
+        "service.target_port",
+    } or bool(
+        finding_subject
+        and finding_subject.endswith((".container_port", ".published_port"))
+    )
+    if is_port_finding and any(
+        e.path.endswith(
+            ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml")
+        )
+        for e in evidence
+    ):
+        return "compose_port"
     return fallback
 
 
@@ -1389,7 +1428,11 @@ def _analyze_service(
                 evidence=[_ev(published, compose_path, "ports.published")],
             )
         )
-    component.published_ports = [str(p.value) for p in service.ports]
+    component.published_ports = [
+        str(p.value)
+        for p in service.ports
+        if _published_port_number(str(p.value)) is not None
+    ]
 
     # Ingress host candidates from Traefik router labels (deduplicated by host).
     seen_hosts: set[str] = set()

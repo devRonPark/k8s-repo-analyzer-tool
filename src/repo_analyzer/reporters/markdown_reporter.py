@@ -195,7 +195,12 @@ def _profile_candidates_section(out, heading: str, candidates, candidate_role: s
     out("")
     relevant = [candidate for candidate in candidates if candidate.candidate_role == candidate_role]
     if not relevant:
-        out("_None detected._")
+        label = (
+            "workload controller"
+            if candidate_role == "workload_controller"
+            else "companion object"
+        )
+        out(f"_No {label} candidates detected in scanned repository facts._")
     else:
         for candidate in relevant:
             out(f"- {candidate.kind} candidate: {candidate.rationale} ({candidate.confidence})")

@@ -395,7 +395,7 @@ def test_single_spring_boot_profile_uses_generic_port_and_probe_facts(tmp_path):
 def test_published_port_number_uses_host_side_port():
     assert _published_port_number("3000:8080") == 3000
     assert _published_port_number("127.0.0.1:3000:8080") == 3000
-    assert _published_port_number("8080") == 8080
+    assert _published_port_number("8080") is None
     assert _published_port_number("3000:8080/tcp") == 3000
 
 
@@ -405,29 +405,30 @@ def test_profile_separates_published_port_from_container_port(tmp_path):
         "  api:\n"
         "    image: example/api:latest\n"
         "    ports:\n"
+        '      - "8082"\n'
         '      - "3000:8080/tcp"\n'
         '      - "127.0.0.1:3001:8081"\n'
-        '      - "8082"\n'
     )
 
     result = analyze_repository(str(tmp_path))
     candidates = _profile(result, "api").runtime_deployment_profile.exposure_candidates
 
     assert [(candidate.source, candidate.port) for candidate in candidates] == [
-        ("container_port", 8080),
+        ("container_port", 8082),
         ("published_port", 3000),
         ("published_port", 3001),
-        ("published_port", 8082),
     ]
     published_candidates = [
         candidate for candidate in candidates if candidate.source == "published_port"
     ]
     assert [candidate.evidence[0].selector for candidate in published_candidates] == [
-        "$.services.api.ports[0]",
         "$.services.api.ports[1]",
         "$.services.api.ports[2]",
     ]
     assert all(candidate.evidence for candidate in published_candidates)
+    runtime = _profile(result, "api").runtime_deployment_profile
+    assert runtime.container_ports == [8082]
+    assert runtime.published_ports == ["3000:8080/tcp", "127.0.0.1:3001:8081"]
 
 
 def test_inline_compose_environment_candidates_use_entry_evidence(tmp_path):
@@ -482,3 +483,22 @@ def test_image_only_compose_service_has_no_service_candidate(tmp_path):
         candidate.evidence_type != "compose_port"
         for candidate in profile.runtime_deployment_profile.kubernetes_candidates
     )
+
+
+def test_traefik_host_label_without_port_has_ingress_but_no_service_candidate(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: example/api:latest\n"
+        "    labels:\n"
+        '      - "traefik.http.routers.api.rule=Host(`api.example.com`)"\n'
+    )
+
+    result = analyze_repository(str(tmp_path))
+    candidates = _profile(result, "api").runtime_deployment_profile.kubernetes_candidates
+
+    ingress = next(candidate for candidate in candidates if candidate.kind == "Ingress")
+    assert ingress.evidence_type == "component_source"
+    assert all(evidence.symbol == "traefik.host" for evidence in ingress.evidence)
+    assert not any(candidate.kind == "Service" for candidate in candidates)
+    assert not any(candidate.evidence_type == "compose_port" for candidate in candidates)
