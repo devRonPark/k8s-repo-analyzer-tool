@@ -30,6 +30,7 @@ from ..models import (
     Warning,
     WorkloadMapping,
     WorkloadProfile,
+    WorkloadRelationship,
 )
 from ..models import DetectedFile
 from ..parsers.common import Located
@@ -385,6 +386,9 @@ def _workload_profile(
     mapping_evidence = list(mapping.evidence) if mapping else []
     component_findings = _component_findings(component, result)
     dockerfile_evidence = _dockerfile_evidence(component, result.container_image)
+    relationships, relationship_open_decisions = _workload_relationships(
+        component, mapping_evidence, result
+    )
 
     image_evidence = _dedupe_evidence(mapping_evidence + dockerfile_evidence)
     runtime_evidence = _dedupe_evidence(
@@ -433,9 +437,10 @@ def _workload_profile(
         kubernetes_candidates=_kubernetes_candidates(
             component, mapping, component_findings, mapping_evidence
         ),
-        relationships=[],
+        relationships=relationships,
         evidence=runtime_evidence,
         unresolved=runtime_unresolved,
+        open_decisions=relationship_open_decisions,
     )
     return WorkloadProfile(
         name=component.name,
@@ -444,6 +449,123 @@ def _workload_profile(
         image_build_profile=image_profile,
         runtime_deployment_profile=runtime_profile,
     )
+
+
+def _workload_relationships(
+    component: Component, mapping_evidence: list[Evidence], result: AnalysisResult
+) -> tuple[list[WorkloadRelationship], list[str]]:
+    """Project only exact component references into workload relationships."""
+
+    component_names = {candidate.name for candidate in result.components}
+    relationships: list[WorkloadRelationship] = []
+    open_decisions: list[str] = []
+
+    for target in component.depends_on:
+        startup_finding = next(
+            (
+                finding
+                for finding in result.startup_order
+                if finding.subject == f"{component.name}.waits_for.{target}"
+            ),
+            None,
+        )
+        if startup_finding is not None:
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=f"Compose starts {component.name} after {target}.",
+                    confidence=startup_finding.confidence,
+                    evidence=list(startup_finding.evidence),
+                )
+            )
+        elif target in component_names:
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=f"Compose declares {component.name} depends on {target}.",
+                    confidence="derived",
+                    evidence=list(mapping_evidence),
+                )
+            )
+        else:
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=(
+                        f"Compose declares {component.name} depends on unresolved external target {target}."
+                    ),
+                    confidence="unresolved",
+                    evidence=list(mapping_evidence),
+                    open_decisions=[
+                        f"Confirm how external dependency {target} is provided and coordinated."
+                    ],
+                )
+            )
+
+    for dependency in component.runtime_dependencies:
+        if dependency not in component_names or dependency == component.name:
+            continue
+        relationships.append(
+            WorkloadRelationship(
+                source=component.name,
+                target=dependency,
+                relationship_type="runtime_dependency",
+                evidence_type="runtime_dependency",
+                description=f"{component.name} has a runtime dependency on {dependency}.",
+                confidence="derived",
+                evidence=list(mapping_evidence),
+            )
+        )
+
+    for finding in result.build_time_constraints:
+        if not finding.subject.startswith(f"{component.name}."):
+            continue
+        targets = [
+            target
+            for target in sorted(component_names - {component.name})
+            if _finding_names_component(finding, target)
+        ]
+        if not targets:
+            open_decisions.append(
+                f"Resolve the target for build-time constraint {finding.subject} before deployment."
+            )
+            continue
+        for target in targets:
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="build_time_binding",
+                    evidence_type="build_time_constraint",
+                    description=(
+                        f"{finding.subject} binds {component.name} to {target} at image build time."
+                    ),
+                    confidence=finding.confidence,
+                    evidence=list(finding.evidence),
+                )
+            )
+
+    return relationships, _dedupe(open_decisions)
+
+
+def _finding_names_component(finding: Finding, component_name: str) -> bool:
+    pattern = rf"(?<![A-Za-z0-9_-]){re.escape(component_name)}(?![A-Za-z0-9_-])"
+    values = [finding.subject, str(finding.value)]
+    values.extend(
+        value
+        for evidence in finding.evidence
+        for value in (evidence.selector, evidence.path)
+    )
+    return any(re.search(pattern, value) for value in values)
 
 
 def _component_findings(component: Component, result: AnalysisResult) -> dict[str, list[Finding]]:
@@ -1169,6 +1291,12 @@ def _analyze_service(
 ) -> None:
     component = Component(name=service.name, workload_candidate="")
     component.source_files.append(compose_path)
+    component.depends_on = [
+        str(dependency.value["service"])
+        if isinstance(dependency.value, dict)
+        else str(dependency.value)
+        for dependency in service.depends_on
+    ]
 
     image_value = service.image.value if service.image else None
     component.image = image_value

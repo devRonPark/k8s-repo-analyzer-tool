@@ -39,8 +39,6 @@ def test_full_stack_fastapi_profiles_group_build_and_runtime(golden_repo):
     )
     assert backend.runtime_deployment_profile.probe_candidates[0].evidence_type == "compose_healthcheck"
     assert backend.runtime_deployment_profile.exposure_candidates[0].evidence_type == "compose_port"
-    assert backend.runtime_deployment_profile.relationships == []
-
     prestart = _profile(result, "prestart")
     assert any(
         candidate.kind == "Job"
@@ -49,6 +47,36 @@ def test_full_stack_fastapi_profiles_group_build_and_runtime(golden_repo):
     assert not any(
         candidate.kind == "Service"
         for candidate in prestart.runtime_deployment_profile.kubernetes_candidates
+    )
+
+
+def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
+    result = analyze_repository(str(golden_repo), git_ref="4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8")
+
+    prestart = _profile(result, "prestart")
+    prestart_relationships = {
+        (rel.source, rel.target, rel.relationship_type)
+        for rel in prestart.runtime_deployment_profile.relationships
+    }
+    assert ("prestart", "db", "startup_order") in prestart_relationships
+
+    backend = _profile(result, "backend")
+    relationships = {
+        (rel.source, rel.target, rel.relationship_type)
+        for rel in backend.runtime_deployment_profile.relationships
+    }
+    assert ("backend", "db", "startup_order") in relationships
+    assert ("backend", "prestart", "startup_order") in relationships
+    assert all(
+        rel.evidence_type == "compose_depends_on"
+        for rel in backend.runtime_deployment_profile.relationships
+        if rel.relationship_type == "startup_order"
+    )
+
+    frontend = _profile(result, "frontend")
+    assert not any(
+        rel.source == "frontend" and rel.target == "backend"
+        for rel in frontend.runtime_deployment_profile.relationships
     )
 
 
