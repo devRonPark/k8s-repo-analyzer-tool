@@ -375,7 +375,7 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
             "Think and check internally in English for logic accuracy; output only the Korean Markdown final answer.",
             "Write the final answer in Korean natural-language Markdown, not as a copied deterministic report.",
             "Use exactly these top-level sections: ## 핵심 요약, ## 7문항 답변, ## 경고와 리스크, ## 추가 결정사항.",
-            "Allowed final-answer content is limited to: migration question answers and statuses, component/workload/port/dependency/config/storage/startup facts from the deterministic brief, analyzer warning codes and messages, image/runtime risk subjects and effects, and unresolved operational inputs with needed inputs.",
+            "Allowed final-answer content is limited to: migration question answers and statuses, component/workload/port/dependency/config/storage/startup facts from the deterministic brief, structured workload profile facts from <workload_profiles>, analyzer warning codes and messages, image/runtime risk subjects and effects, and unresolved operational inputs with needed inputs.",
             "For ## 핵심 요약, write 3-5 natural Korean sentences.",
             "For ## 7문항 답변, write one numbered item per migration question, include the status in parentheses, and rewrite each answer in 1-2 Korean sentences.",
             "For ## 경고와 리스크, include every warning code and every image/runtime risk subject, with why it matters for Kubernetes migration.",

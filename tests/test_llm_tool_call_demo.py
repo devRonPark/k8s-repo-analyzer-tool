@@ -877,6 +877,22 @@ def test_final_answer_instruction_prefers_workload_profiles():
 
     instruction = module._build_final_answer_instruction(payload)
 
-    assert "workload_profiles" in instruction
+    start = instruction.index("\n<workload_profiles>\n") + len("\n<workload_profiles>\n")
+    end = instruction.index("\n</workload_profiles>", start)
+    serialized_profiles = instruction[start:end].strip()
+    assert serialized_profiles == json.dumps(
+        payload["analysis"]["workload_profiles"],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    assert serialized_profiles != "[]"
+    assert json.loads(serialized_profiles) == payload["analysis"]["workload_profiles"]
+    assert 'name":"backend"' in serialized_profiles
+    assert 'dockerfile":"backend/Dockerfile"' in serialized_profiles
+    assert 'runtime":"FastAPI"' in serialized_profiles
+    assert '"kind":"Deployment"' in serialized_profiles
+    assert '"candidate_role":"workload_controller"' in serialized_profiles
+    assert '"evidence_type":"component_source"' in serialized_profiles
+    assert "structured workload profile facts from <workload_profiles>" in instruction
     assert "infer" not in instruction.lower()
     assert "structured workload profiles" in instruction
