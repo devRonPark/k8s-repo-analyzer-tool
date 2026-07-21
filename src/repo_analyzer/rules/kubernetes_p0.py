@@ -655,7 +655,8 @@ def _service_candidate_allowed(component: Component) -> bool:
 
 
 def _published_port_number(spec: str) -> int | None:
-    token = spec.split("/", 1)[0].split(":")[-1]
+    segments = spec.split("/", 1)[0].split(":")
+    token = segments[-2] if len(segments) > 1 else segments[-1]
     return int(token) if token.isdigit() else None
 
 

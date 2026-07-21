@@ -1,4 +1,5 @@
 from repo_analyzer.analyzer import analyze_repository
+from repo_analyzer.rules.kubernetes_p0 import _published_port_number
 
 
 def _profile(result, name):
@@ -139,3 +140,32 @@ def test_single_spring_boot_profile_uses_generic_port_and_probe_facts(tmp_path):
         "/actuator/health/liveness",
         "/actuator/health/readiness",
     }
+
+
+def test_published_port_number_uses_host_side_port():
+    assert _published_port_number("3000:8080") == 3000
+    assert _published_port_number("127.0.0.1:3000:8080") == 3000
+    assert _published_port_number("8080") == 8080
+    assert _published_port_number("3000:8080/tcp") == 3000
+
+
+def test_profile_separates_published_port_from_container_port(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: example/api:latest\n"
+        "    ports:\n"
+        '      - "3000:8080/tcp"\n'
+        '      - "127.0.0.1:3001:8081"\n'
+        '      - "8082"\n'
+    )
+
+    result = analyze_repository(str(tmp_path))
+    candidates = _profile(result, "api").runtime_deployment_profile.exposure_candidates
+
+    assert [(candidate.source, candidate.port) for candidate in candidates] == [
+        ("container_port", 8080),
+        ("published_port", 3000),
+        ("published_port", 3001),
+        ("published_port", 8082),
+    ]

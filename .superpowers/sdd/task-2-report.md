@@ -47,3 +47,14 @@ The task brief expected the backend build context to be `./backend`, but the che
 - Spring regression: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py::test_single_spring_boot_profile_uses_generic_port_and_probe_facts` passed (1 test).
 - Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (3 tests).
 - Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (248 tests).
+
+## Remaining Published-Port Fix
+
+- Fixed `_published_port_number()` to report the host-side published port for mapped Compose ports while preserving the container-side port candidate separately.
+- Protocol suffixes are stripped before parsing; bare ports continue to resolve to themselves.
+- Added regression coverage for `3000:8080`, `127.0.0.1:3000:8080`, `8080`, and `/tcp`, plus an end-to-end profile assertion with unequal host/container ports.
+
+## Fix Test Results
+
+- Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (5 tests).
+- Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (248 tests).
