@@ -261,6 +261,42 @@ def test_workload_is_deployment_plus_service(spring_petclinic_repo):
     assert mapping.kubernetes_kind == "Deployment + ClusterIP Service"
 
 
+def test_application_profile_keeps_service_and_actuator_candidates_with_database_components(
+    spring_petclinic_repo,
+):
+    result = analyze_repository(str(spring_petclinic_repo), build_system="gradle")
+    profile = next(
+        profile for profile in result.workload_profiles if profile.name == "spring-petclinic"
+    )
+    runtime = profile.runtime_deployment_profile
+
+    service = next(
+        candidate for candidate in runtime.kubernetes_candidates if candidate.kind == "Service"
+    )
+    service_fact = next(
+        finding
+        for finding in result.networking
+        if finding.subject == "service.target_port" and finding.value == 8080
+    )
+    assert service.candidate_role == "companion_object"
+    assert all(evidence in service.evidence for evidence in service_fact.evidence)
+    assert {
+        (candidate.probe_type, candidate.value)
+        for candidate in runtime.probe_candidates
+    } == {
+        ("liveness", "/actuator/health/liveness"),
+        ("readiness", "/actuator/health/readiness"),
+    }
+    assert all(candidate.evidence for candidate in runtime.probe_candidates)
+    database_profiles = [
+        profile for profile in result.workload_profiles if profile.name in {"mysql", "postgres"}
+    ]
+    assert all(
+        not profile.runtime_deployment_profile.probe_candidates
+        for profile in database_profiles
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Determinism & read-only guarantees
 # --------------------------------------------------------------------------- #

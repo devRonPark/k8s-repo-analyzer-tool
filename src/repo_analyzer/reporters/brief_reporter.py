@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..models import AnalysisResult, AnswerBasis
+from ..models import AnalysisResult, AnswerBasis, WorkloadProfile
 
 _MAX_EVIDENCE_ITEMS = 6
 
@@ -32,6 +32,9 @@ def to_brief(result: AnalysisResult) -> str:
     out(f"- Open inputs: {len(result.unresolved_operational_inputs)}")
     out("")
 
+    if result.workload_profiles:
+        _workload_profiles_section(out, result.workload_profiles)
+
     out("## Seven migration questions")
     out("")
     if not result.migration_questions:
@@ -43,7 +46,7 @@ def to_brief(result: AnalysisResult) -> str:
             out("")
             out(f"**Status:** {question.status}")
             out("")
-            out(f"**Answer:** {question.answer}")
+            out(f"**Answer:** {_question_answer(question.id, question.answer, result.workload_profiles)}")
             out("")
             out(f"**Evidence:** {_format_basis(question.basis)}")
             out("")
@@ -60,6 +63,194 @@ def to_brief(result: AnalysisResult) -> str:
     out("")
 
     return "\n".join(lines) + "\n"
+
+
+def _workload_profiles_section(out, profiles: list[WorkloadProfile]) -> None:
+    out("## Workload profiles")
+    out("")
+    for profile in profiles:
+        image = profile.image_build_profile
+        runtime = profile.runtime_deployment_profile
+        out(f"### {profile.name}")
+        out("")
+
+        image_details = _details(
+            [
+                ("tool", image.build_tool),
+                ("context", image.build_context),
+                ("Dockerfile", image.dockerfile),
+                ("image", image.image),
+                ("source", image.image_source),
+            ]
+        )
+        out(
+            "- Image build: "
+            f"{image_details or 'no profile facts detected in scanned repository facts'}"
+        )
+
+        runtime_details = _details(
+            [
+                ("runtime", runtime.runtime),
+                ("command", " ".join(runtime.command) if runtime.command else None),
+                ("ports", ", ".join(str(port) for port in runtime.container_ports) or None),
+            ]
+        )
+        out(
+            "- Runtime deployment: "
+            f"{runtime_details or 'no profile facts detected in scanned repository facts'}"
+        )
+
+        _candidate_summary(out, "Workload controller candidates", runtime.kubernetes_candidates, "workload_controller")
+        _candidate_summary(out, "Companion object candidates", runtime.kubernetes_candidates, "companion_object")
+
+        if runtime.relationships:
+            out("- Relationships: " + "; ".join(
+                f"{relationship.source} -> {relationship.target}"
+                for relationship in runtime.relationships
+            ))
+        decisions = _profile_open_decisions(profile)
+        if decisions:
+            out(f"- Open decisions: {'; '.join(decisions)}")
+        out("")
+
+
+def _details(items: list[tuple[str, str | None]]) -> str:
+    return "; ".join(f"{label}={value}" for label, value in items if value is not None)
+
+
+def _candidate_summary(out, label: str, candidates, role: str) -> None:
+    names = [candidate.kind for candidate in candidates if candidate.candidate_role == role]
+    if names:
+        out(f"- {label}: {', '.join(names)}")
+
+
+def _question_answer(question_id: str, legacy_answer: str, profiles: list[WorkloadProfile]) -> str:
+    if not profiles:
+        return legacy_answer
+
+    if question_id == "build_and_run":
+        summaries = []
+        for profile in profiles:
+            image = profile.image_build_profile
+            runtime = profile.runtime_deployment_profile
+            image_details = _details(
+                [
+                    ("tool", image.build_tool),
+                    ("context", image.build_context),
+                    ("Dockerfile", image.dockerfile),
+                    ("image", image.image),
+                    ("source", image.image_source),
+                ]
+            )
+            runtime_details = _details(
+                [
+                    ("runtime", runtime.runtime),
+                    ("command", " ".join(runtime.command) if runtime.command else None),
+                    ("ports", ", ".join(str(port) for port in runtime.container_ports) or None),
+                ]
+            )
+            summaries.extend(
+                [
+                    f"{profile.name}: Image build: "
+                    f"{image_details or 'no profile facts detected in scanned repository facts'}",
+                    f"{profile.name}: Runtime deployment: "
+                    f"{runtime_details or 'no profile facts detected in scanned repository facts'}",
+                ]
+            )
+        return _enriched_answer(legacy_answer, summaries)
+
+    if question_id == "ports_and_services":
+        summaries = []
+        relationships = []
+        for profile in profiles:
+            runtime = profile.runtime_deployment_profile
+            candidates = runtime.kubernetes_candidates
+            if runtime.container_ports:
+                summaries.append(
+                    f"{profile.name} targetPort "
+                    f"{', '.join(str(port) for port in runtime.container_ports)}"
+                )
+            if runtime.published_ports:
+                summaries.append(
+                    f"{profile.name} published ports: {', '.join(runtime.published_ports)}"
+                )
+            controllers = [
+                candidate.kind
+                for candidate in candidates
+                if candidate.candidate_role == "workload_controller"
+            ]
+            companions = [
+                candidate.kind
+                for candidate in candidates
+                if candidate.candidate_role == "companion_object"
+            ]
+            if controllers:
+                summaries.append(
+                    f"{profile.name}: Workload controller candidates: "
+                    f"{', '.join(controllers)}"
+                )
+            if companions:
+                summaries.append(
+                    f"{profile.name}: Companion object candidates: {', '.join(companions)}"
+                )
+            relationships.extend(
+                f"{relationship.source} -> {relationship.target}"
+                for relationship in runtime.relationships
+            )
+        if relationships:
+            summaries.append(f"Workload relationships: {'; '.join(dict.fromkeys(relationships))}")
+        if not summaries:
+            return "No port or Kubernetes object candidate was detected in scanned repository facts."
+        return "\n".join(f"- {summary}" for summary in summaries)
+
+    if question_id == "repository_unknowns":
+        decisions = list(
+            dict.fromkeys(
+                decision
+                for profile in profiles
+                for decision in _profile_open_decisions(profile)
+            )
+        )
+        summaries = (
+            [f"Workload profile open decisions: {'; '.join(decisions)}"]
+            if decisions
+            else []
+        )
+        return _enriched_answer(legacy_answer, summaries)
+
+    return legacy_answer
+
+
+def _profile_open_decisions(profile: WorkloadProfile) -> list[str]:
+    image = profile.image_build_profile
+    runtime = profile.runtime_deployment_profile
+    decisions = [
+        *image.unresolved,
+        *image.open_decisions,
+        *runtime.unresolved,
+        *runtime.open_decisions,
+        *(
+            decision
+            for candidate in (
+                *runtime.exposure_candidates,
+                *runtime.probe_candidates,
+                *runtime.kubernetes_candidates,
+            )
+            for decision in getattr(candidate, "open_decisions", ())
+        ),
+        *(
+            decision
+            for relationship in runtime.relationships
+            for decision in relationship.open_decisions
+        ),
+    ]
+    return list(dict.fromkeys(decisions))
+
+
+def _enriched_answer(legacy_answer: str, summaries: list[str]) -> str:
+    if not summaries:
+        return legacy_answer
+    return f"{legacy_answer}\n\n" + "\n".join(f"- {summary}" for summary in summaries)
 
 
 def _format_basis(basis_items: list[AnswerBasis]) -> str:

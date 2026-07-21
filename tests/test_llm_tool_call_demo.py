@@ -3,6 +3,8 @@ import json
 import urllib.error
 from pathlib import Path
 
+from repo_analyzer.analyzer import analyze_repository
+
 
 def _load_script():
     path = Path("scripts/llm_tool_call_demo.py")
@@ -11,6 +13,16 @@ def _load_script():
     assert spec is not None and spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _nested_keys(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield key
+            yield from _nested_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _nested_keys(child)
 
 
 def test_converts_existing_tool_schema_to_responses_function_tool():
@@ -800,3 +812,322 @@ def test_live_mode_requires_api_key_for_default_openai_endpoint(
 
     assert exit_code == 2
     assert "OPENAI_API_KEY is required for https://api.openai.com/v1" in capsys.readouterr().err
+
+
+def test_final_answer_instruction_prefers_workload_profiles():
+    module = _load_script()
+    payload = {
+        "ok": True,
+        "analysis": {
+            "schema_version": "1.0",
+            "repository": {
+                "name": "repo",
+                "profile": "kubernetes-p0",
+                "git_ref": None,
+                "file_count": 1,
+            },
+            "workload_profiles": [
+                {
+                    "name": "backend",
+                    "source_files": ["compose.yml"],
+                    "image_build_profile": {
+                        "dockerfile": "backend/Dockerfile",
+                        "evidence": [
+                            {
+                                "path": "compose.yml",
+                                "selector": "services.backend.build",
+                                "symbol": "build",
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        ],
+                    },
+                    "runtime_deployment_profile": {
+                        "runtime": "FastAPI",
+                        "container_ports": [8000],
+                        "evidence": [
+                            {
+                                "path": "compose.yml",
+                                "selector": "services.backend",
+                                "symbol": "backend",
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        ],
+                        "kubernetes_candidates": [
+                            {
+                                "kind": "Deployment",
+                                "candidate_role": "workload_controller",
+                                "evidence_type": "component_source",
+                                "confidence": "derived",
+                                "rationale": "stateless HTTP application",
+                            }
+                        ],
+                        "relationships": [],
+                    },
+                }
+            ],
+            "migration_questions": [],
+            "components": [],
+            "workload_mappings": [],
+            "networking": [],
+            "configuration": [],
+            "secrets": [],
+            "storage": [],
+            "runtime_dependencies": [],
+            "startup_order": [],
+            "health_checks": [],
+            "build_time_constraints": [],
+            "container_image": [],
+            "unresolved_operational_inputs": [],
+            "warnings": [],
+            "unsupported_constructs": [],
+            "source_coverage": [],
+            "detected_files": [],
+        },
+    }
+
+    instruction = module._build_final_answer_instruction(payload)
+
+    start = instruction.index("\n<workload_profiles>\n") + len("\n<workload_profiles>\n")
+    end = instruction.index("\n</workload_profiles>", start)
+    serialized_profiles = instruction[start:end].strip()
+    assert serialized_profiles != "[]"
+    compact_profiles = json.loads(serialized_profiles)
+    assert compact_profiles != payload["analysis"]["workload_profiles"]
+    assert "source_files" not in compact_profiles[0]
+    assert "evidence" not in compact_profiles[0]["image_build_profile"]
+    assert "evidence" not in compact_profiles[0]["runtime_deployment_profile"]
+    assert 'name":"backend"' in serialized_profiles
+    assert 'dockerfile":"backend/Dockerfile"' in serialized_profiles
+    assert 'runtime":"FastAPI"' in serialized_profiles
+    assert '"kind":"Deployment"' in serialized_profiles
+    assert '"candidate_role":"workload_controller"' in serialized_profiles
+    assert compact_profiles[0]["runtime_deployment_profile"][
+        "kubernetes_candidates"
+    ][0] == {
+        "kind": "Deployment",
+        "candidate_role": "workload_controller",
+        "evidence_type": "component_source",
+        "confidence": "derived",
+        "rationale": "stateless HTTP application",
+    }
+    assert "structured workload profile facts from <workload_profiles>" in instruction
+    assert "Scope every negative claim to scanned repository facts" in instruction
+    assert "infer" not in instruction.lower()
+    assert "structured workload profiles" in instruction
+
+
+def test_compact_workload_profiles_are_small_and_keep_answer_relevant_fields(golden_repo):
+    module = _load_script()
+    analysis = analyze_repository(str(golden_repo)).model_dump(mode="json")
+    raw_profiles = json.dumps(
+        analysis["workload_profiles"], ensure_ascii=False, separators=(",", ":")
+    )
+
+    serialized_profiles = module._compact_workload_profiles(analysis)
+    compact_profiles = json.loads(serialized_profiles)
+    backend = next(profile for profile in compact_profiles if profile["name"] == "backend")
+    runtime = backend["runtime_deployment_profile"]
+
+    assert len(serialized_profiles) < 12_000
+    assert len(serialized_profiles) < len(raw_profiles) * 0.4
+    assert backend["image_build_profile"]["dockerfile"] == "backend/Dockerfile"
+    assert runtime["runtime"] == "FastAPI"
+    assert runtime["command"][:2] == ["fastapi", "run"]
+    assert runtime["container_ports"] == [8000]
+    assert runtime["environment"]
+    assert any(
+        candidate["kind"] == "Service"
+        and candidate["candidate_role"] == "companion_object"
+        and candidate["rationale"]
+        for candidate in runtime["kubernetes_candidates"]
+    )
+    assert any(
+        relationship["source"] == "backend"
+        and relationship["target"] == "db"
+        and relationship["relationship_type"] == "startup_order"
+        for relationship in runtime["relationships"]
+    )
+    assert any(
+        probe["probe_type"] == "readiness"
+        and probe["evidence_type"] == "compose_healthcheck"
+        for probe in runtime["probe_candidates"]
+    )
+    assert runtime["unresolved"]
+    frontend = next(profile for profile in compact_profiles if profile["name"] == "frontend")
+    assert frontend["runtime_deployment_profile"]["open_decisions"]
+    assert "evidence" not in set(_nested_keys(compact_profiles))
+    assert ":null" not in serialized_profiles
+
+
+def test_compact_workload_profiles_retains_projection_contract():
+    module = _load_script()
+    evidence = [
+        {
+            "path": "compose.yml",
+            "selector": "$.services.backend",
+            "start_line": 1,
+            "end_line": 1,
+        }
+    ]
+    analysis = {
+        "workload_profiles": [
+            {
+                "name": "backend",
+                "source_files": ["compose.yml"],
+                "image_build_profile": {
+                    "build_tool": "docker",
+                    "build_command": "docker build",
+                    "build_context": ".",
+                    "dockerfile": "Dockerfile",
+                    "build_args": ["API_URL"],
+                    "build_artifact": "app.jar",
+                    "packaging": "jar",
+                    "image": "example/backend:latest",
+                    "base_image": "eclipse-temurin:21-jre",
+                    "builder_image": "eclipse-temurin:21-jdk",
+                    "image_source": "compose",
+                    "unresolved": ["image tag"],
+                    "open_decisions": ["Choose image registry."],
+                    "evidence": evidence,
+                },
+                "runtime_deployment_profile": {
+                    "language": "Java",
+                    "runtime": "JVM",
+                    "frameworks": ["Spring Boot"],
+                    "application_server": "Tomcat",
+                    "command": ["java", "-jar", "app.jar"],
+                    "workers": 2,
+                    "container_ports": [8080],
+                    "published_ports": ["8080:8080"],
+                    "context_path": "/api",
+                    "environment": ["DATABASE_URL"],
+                    "configmap_candidates": ["LOG_LEVEL"],
+                    "secret_candidates": ["DATABASE_URL"],
+                    "volumes": ["data:/data"],
+                    "unresolved": ["replica count"],
+                    "open_decisions": ["Choose rollout strategy."],
+                    "evidence": evidence,
+                    "exposure_candidates": [
+                        {
+                            "port": 8080,
+                            "source": "compose port",
+                            "evidence_type": "compose_port",
+                            "confidence": "explicit",
+                            "service_candidate": True,
+                            "description": "HTTP service port",
+                            "evidence": evidence,
+                        }
+                    ],
+                    "probe_candidates": [
+                        {
+                            "probe_type": "readiness",
+                            "value": "/health",
+                            "evidence_type": "compose_healthcheck",
+                            "confidence": "explicit",
+                            "open_decisions": ["Choose probe thresholds."],
+                            "evidence": evidence,
+                        }
+                    ],
+                    "kubernetes_candidates": [
+                        {
+                            "kind": "Deployment",
+                            "candidate_role": "workload_controller",
+                            "evidence_type": "component_source",
+                            "confidence": "derived",
+                            "rationale": "stateless application",
+                            "open_decisions": ["Choose replica count."],
+                            "evidence": evidence,
+                        }
+                    ],
+                    "relationships": [
+                        {
+                            "source": "backend",
+                            "target": "database",
+                            "relationship_type": "startup_order",
+                            "evidence_type": "compose_depends_on",
+                            "description": "Backend waits for the database.",
+                            "confidence": "unresolved",
+                            "open_decisions": ["Choose dependency coordination."],
+                            "evidence": evidence,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    profiles = json.loads(module._compact_workload_profiles(analysis))
+    image = profiles[0]["image_build_profile"]
+    runtime = profiles[0]["runtime_deployment_profile"]
+
+    assert set(image) == {
+        "build_tool",
+        "build_command",
+        "build_context",
+        "dockerfile",
+        "build_args",
+        "build_artifact",
+        "packaging",
+        "image",
+        "base_image",
+        "builder_image",
+        "image_source",
+        "unresolved",
+        "open_decisions",
+    }
+    assert set(runtime) == {
+        "language",
+        "runtime",
+        "frameworks",
+        "application_server",
+        "command",
+        "workers",
+        "container_ports",
+        "published_ports",
+        "context_path",
+        "environment",
+        "configmap_candidates",
+        "secret_candidates",
+        "volumes",
+        "unresolved",
+        "open_decisions",
+        "exposure_candidates",
+        "probe_candidates",
+        "kubernetes_candidates",
+        "relationships",
+    }
+    assert set(runtime["exposure_candidates"][0]) == {
+        "port",
+        "source",
+        "evidence_type",
+        "confidence",
+        "service_candidate",
+        "description",
+    }
+    assert set(runtime["probe_candidates"][0]) == {
+        "probe_type",
+        "value",
+        "evidence_type",
+        "confidence",
+        "open_decisions",
+    }
+    assert set(runtime["kubernetes_candidates"][0]) == {
+        "kind",
+        "candidate_role",
+        "evidence_type",
+        "confidence",
+        "rationale",
+        "open_decisions",
+    }
+    assert set(runtime["relationships"][0]) == {
+        "source",
+        "target",
+        "relationship_type",
+        "evidence_type",
+        "description",
+        "confidence",
+        "open_decisions",
+    }
+    assert "evidence" not in set(_nested_keys(profiles))

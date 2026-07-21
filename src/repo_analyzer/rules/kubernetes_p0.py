@@ -16,14 +16,21 @@ from ..models import (
     AnswerBasis,
     Component,
     Evidence,
+    ExposureCandidate,
     Finding,
+    ImageBuildProfile,
+    KubernetesObjectCandidate,
     MigrationQuestionAnswer,
+    ProbeCandidateProfile,
     RepositoryMetadata,
+    RuntimeDeploymentProfile,
     SourceCoverage,
     Unresolved,
     UnsupportedConstruct,
     Warning,
     WorkloadMapping,
+    WorkloadProfile,
+    WorkloadRelationship,
 )
 from ..models import DetectedFile
 from ..parsers.common import Located
@@ -354,8 +361,562 @@ def analyze_kubernetes_p0(
 
 def _finalize_result(result: AnalysisResult) -> AnalysisResult:
     _emit_source_conflict_warnings(result)
+    _emit_workload_profiles(result)
     _emit_migration_questions(result)
     return result
+
+
+def _emit_workload_profiles(result: AnalysisResult) -> None:
+    """Project existing component facts into provenance-bearing profiles."""
+
+    mappings = {mapping.component: mapping for mapping in result.workload_mappings}
+    profile_count = len(result.components)
+    result.workload_profiles = [
+        _workload_profile(component, mappings.get(component.name), result, profile_count)
+        for component in result.components
+    ]
+
+
+def _workload_profile(
+    component: Component,
+    mapping: WorkloadMapping | None,
+    result: AnalysisResult,
+    profile_count: int,
+) -> WorkloadProfile:
+    mapping_evidence = list(mapping.evidence) if mapping else []
+    component_findings = _component_findings(component, result)
+    dockerfile_evidence = _dockerfile_evidence(component, result.container_image)
+    relationships, relationship_open_decisions = _workload_relationships(
+        component, mapping_evidence, result
+    )
+
+    image_evidence = _dedupe_evidence(mapping_evidence + dockerfile_evidence)
+    runtime_evidence = _dedupe_evidence(
+        mapping_evidence
+        + _finding_evidence(component_findings["networking"])
+        + _finding_evidence(component_findings["health"])
+        + _finding_evidence(component_findings["storage"])
+        + _finding_evidence(component_findings["configuration"])
+        + _finding_evidence(component_findings["secrets"])
+    )
+    runtime_unresolved = _dedupe(component.unresolved + (mapping.unresolved if mapping else []))
+
+    image_profile = ImageBuildProfile(
+        build_tool=component.build_tool,
+        build_command=component.build_command,
+        build_context=component.build_context,
+        dockerfile=component.dockerfile,
+        build_args=list(component.build_args),
+        build_artifact=component.build_artifact,
+        packaging=component.packaging,
+        image=component.image,
+        base_image=_base_image_for_component(component, result.container_image, profile_count),
+        image_source="local_build" if component.build_context or component.dockerfile else None,
+        evidence=image_evidence,
+        unresolved=[],
+    )
+    runtime_profile = RuntimeDeploymentProfile(
+        runtime=component.runtime,
+        language=component.language,
+        frameworks=list(component.frameworks),
+        application_server=component.application_server,
+        command=list(component.command) if component.command is not None else None,
+        workers=component.workers,
+        container_ports=list(component.container_ports),
+        published_ports=list(component.published_ports),
+        context_path=component.context_path,
+        environment=list(component.environment),
+        configmap_candidates=[
+            name for name in component.environment if name not in component.secret_candidates
+        ],
+        secret_candidates=list(component.secret_candidates),
+        volumes=list(component.volumes),
+        exposure_candidates=_exposure_candidates(component, component_findings["networking"], mapping_evidence),
+        probe_candidates=_probe_candidates(component, component_findings["health"], mapping_evidence),
+        kubernetes_candidates=_kubernetes_candidates(
+            component, mapping, component_findings, mapping_evidence
+        ),
+        relationships=relationships,
+        evidence=runtime_evidence,
+        unresolved=runtime_unresolved,
+        open_decisions=relationship_open_decisions,
+    )
+    return WorkloadProfile(
+        name=component.name,
+        role=None,
+        source_files=list(component.source_files),
+        image_build_profile=image_profile,
+        runtime_deployment_profile=runtime_profile,
+    )
+
+
+def _workload_relationships(
+    component: Component, mapping_evidence: list[Evidence], result: AnalysisResult
+) -> tuple[list[WorkloadRelationship], list[str]]:
+    """Project only exact component references into workload relationships."""
+
+    component_names = {candidate.name for candidate in result.components}
+    relationships: list[WorkloadRelationship] = []
+    open_decisions: list[str] = []
+
+    for target in component.depends_on:
+        startup_finding = next(
+            (
+                finding
+                for finding in result.startup_order
+                if finding.subject == f"{component.name}.waits_for.{target}"
+            ),
+            None,
+        )
+        if target not in component_names:
+            condition = (
+                f" with condition {startup_finding.value}"
+                if startup_finding is not None
+                else ""
+            )
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=(
+                        f"Compose declares {component.name} depends on unresolved external "
+                        f"target {target}{condition}."
+                    ),
+                    confidence="unresolved",
+                    evidence=(
+                        list(startup_finding.evidence)
+                        if startup_finding is not None
+                        else list(mapping_evidence)
+                    ),
+                    open_decisions=[
+                        f"Confirm how external dependency {target} is provided and coordinated."
+                    ],
+                )
+            )
+        elif startup_finding is not None:
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=(
+                        f"Compose starts {component.name} after {target} with condition "
+                        f"{startup_finding.value}."
+                    ),
+                    confidence=startup_finding.confidence,
+                    evidence=list(startup_finding.evidence),
+                )
+            )
+        else:
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=f"Compose declares {component.name} depends on {target}.",
+                    confidence="derived",
+                    evidence=list(mapping_evidence),
+                )
+            )
+
+    for dependency in component.runtime_dependencies:
+        if dependency not in component_names or dependency == component.name:
+            continue
+        runtime_finding = next(
+            (
+                finding
+                for finding in result.runtime_dependencies
+                if finding.subject == f"{component.name}.runtime_dependency"
+                and finding.value == dependency
+            ),
+            None,
+        )
+        if runtime_finding is None:
+            continue
+        relationships.append(
+            WorkloadRelationship(
+                source=component.name,
+                target=dependency,
+                relationship_type="runtime_dependency",
+                evidence_type="runtime_dependency",
+                description=f"{component.name} has a runtime dependency on {dependency}.",
+                confidence=runtime_finding.confidence,
+                evidence=list(runtime_finding.evidence),
+            )
+        )
+
+    for finding in result.build_time_constraints:
+        if not finding.subject.startswith(f"{component.name}."):
+            continue
+        if (
+            isinstance(finding.value, str)
+            and finding.value in component_names
+            and finding.value != component.name
+        ):
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=finding.value,
+                    relationship_type="build_time_binding",
+                    evidence_type="build_time_constraint",
+                    description=f"{component.name} has a build-time binding to {finding.value}.",
+                    confidence=finding.confidence,
+                    evidence=list(finding.evidence),
+                )
+            )
+            continue
+        open_decisions.append(
+            f"Resolve the target for build-time constraint {finding.subject} before deployment."
+        )
+
+    return relationships, _dedupe(open_decisions)
+
+
+def _component_findings(component: Component, result: AnalysisResult) -> dict[str, list[Finding]]:
+    prefix = f"{component.name}."
+    generic_application = _generic_application_component(result)
+    owns_generic_application_findings = (
+        generic_application is not None and generic_application.name == component.name
+    )
+
+    def is_component_health_finding(finding: Finding) -> bool:
+        return finding.subject in {
+            f"{component.name}.health_path",
+            f"{component.name}.health_exec",
+        }
+
+    def is_generic_application_health_finding(finding: Finding) -> bool:
+        return finding.subject in {"health.liveness_probe", "health.readiness_probe"}
+
+    return {
+        # Compose services share the compose file, so its path cannot establish
+        # component ownership. Unqualified application findings belong only to
+        # the unique component with application build/runtime evidence.
+        "networking": [
+            finding
+            for finding in result.networking
+            if finding.subject.startswith(prefix)
+            or (
+                owns_generic_application_findings
+                and finding.subject.startswith(("app.", "service."))
+            )
+        ],
+        "health": [
+            finding
+            for finding in result.health_checks
+            if is_component_health_finding(finding)
+            or (
+                owns_generic_application_findings
+                and is_generic_application_health_finding(finding)
+            )
+        ],
+        "storage": [finding for finding in result.storage if finding.subject.startswith(prefix)],
+        "configuration": [
+            finding
+            for finding in result.configuration
+            if (
+                finding.subject.startswith(f"{component.name}.config.")
+                and finding.subject.removeprefix(f"{component.name}.config.")
+                in component.environment
+            )
+            or (
+                finding.subject.startswith("config.")
+                and finding.subject.removeprefix("config.") in component.environment
+            )
+        ],
+        "secrets": [
+            finding
+            for finding in result.secrets
+            if (
+                finding.subject.startswith(f"{component.name}.secret.")
+                and finding.subject.removeprefix(f"{component.name}.secret.")
+                in component.secret_candidates
+            )
+            or (
+                finding.subject.startswith("secret.")
+                and finding.subject.removeprefix("secret.") in component.secret_candidates
+            )
+        ],
+    }
+
+
+def _generic_application_component(result: AnalysisResult) -> Component | None:
+    if len(result.components) == 1:
+        return result.components[0]
+
+    application_components = [
+        component
+        for component in result.components
+        if component.language
+        or component.frameworks
+        or component.build_tool
+        or component.build_command
+        or component.build_artifact
+        or component.application_server
+    ]
+    return application_components[0] if len(application_components) == 1 else None
+
+
+def _dockerfile_evidence(component: Component, findings: list[Finding]) -> list[Evidence]:
+    if component.dockerfile is None:
+        return []
+    return _finding_evidence(
+        [finding for finding in findings if any(ev.path == component.dockerfile for ev in finding.evidence)]
+    )
+
+
+def _base_image_for_component(
+    component: Component, findings: list[Finding], profile_count: int
+) -> str | None:
+    for finding in findings:
+        if finding.subject != "image.base" or not isinstance(finding.value, str):
+            continue
+        if profile_count == 1 or (
+            component.dockerfile is not None
+            and any(evidence.path == component.dockerfile for evidence in finding.evidence)
+        ):
+            return finding.value
+    return None
+
+
+def _exposure_candidates(
+    component: Component, networking: list[Finding], mapping_evidence: list[Evidence]
+) -> list[ExposureCandidate]:
+    candidates: list[ExposureCandidate] = []
+    service_candidate = _service_candidate_allowed(component)
+    for port in component.container_ports:
+        finding = next(
+            (
+                finding
+                for subject in (
+                    f"{component.name}.container_port",
+                    "app.server_port",
+                    "app.default_port",
+                    "service.target_port",
+                )
+                for finding in networking
+                if finding.subject == subject and finding.value == port
+            ),
+            None,
+        )
+        evidence = list(finding.evidence) if finding else list(mapping_evidence)
+        candidates.append(
+            ExposureCandidate(
+                port=port,
+                source="container_port",
+                evidence_type=_evidence_type(
+                    evidence,
+                    "component_source",
+                    finding.subject if finding else None,
+                ),
+                confidence=finding.confidence if finding else "derived",
+                service_candidate=service_candidate,
+                description=f"{component.name} container port candidate",
+                evidence=evidence,
+            )
+        )
+    published_findings = [
+        finding
+        for finding in networking
+        if finding.subject == f"{component.name}.published_port"
+    ]
+    published_finding_index = 0
+    for published in component.published_ports:
+        port = _published_port_number(published)
+        if port is None:
+            continue
+        finding = next(
+            (
+                candidate
+                for candidate in published_findings[published_finding_index:]
+                if candidate.value == port
+            ),
+            None,
+        )
+        published_finding_index += 1
+        evidence = list(finding.evidence) if finding else list(mapping_evidence)
+        candidates.append(
+            ExposureCandidate(
+                port=port,
+                source="published_port",
+                evidence_type=_evidence_type(
+                    evidence,
+                    "component_source",
+                    finding.subject if finding else None,
+                ),
+                confidence=finding.confidence if finding else "explicit",
+                service_candidate=service_candidate,
+                description=f"{component.name} published compose port candidate",
+                evidence=evidence,
+            )
+        )
+    return candidates
+
+
+def _probe_candidates(
+    component: Component, health_checks: list[Finding], mapping_evidence: list[Evidence]
+) -> list[ProbeCandidateProfile]:
+    candidates: list[ProbeCandidateProfile] = []
+    for finding in health_checks:
+        probe_type = "liveness" if "liveness" in finding.subject else "readiness"
+        evidence_type = (
+            "configuration_reference"
+            if finding.subject in {"health.liveness_probe", "health.readiness_probe"}
+            else _evidence_type(finding.evidence, "compose_healthcheck")
+        )
+        candidates.append(
+            ProbeCandidateProfile(
+                probe_type=probe_type,
+                value=str(finding.value),
+                evidence_type=evidence_type,
+                confidence=finding.confidence,
+                evidence=list(finding.evidence),
+            )
+        )
+    if not candidates and component.healthcheck is not None:
+        candidates.append(
+            ProbeCandidateProfile(
+                probe_type="readiness",
+                value=component.healthcheck,
+                evidence_type="component_source",
+                confidence="derived",
+                evidence=list(mapping_evidence),
+            )
+        )
+    return candidates
+
+
+def _kubernetes_candidates(
+    component: Component,
+    mapping: WorkloadMapping | None,
+    findings: dict[str, list[Finding]],
+    mapping_evidence: list[Evidence],
+) -> list[KubernetesObjectCandidate]:
+    candidates: list[KubernetesObjectCandidate] = []
+    kind_text = mapping.kubernetes_kind if mapping else component.workload_candidate
+    confidence = mapping.confidence if mapping else "derived"
+    rationale = mapping.rationale if mapping else "component workload candidate"
+    if "StatefulSet" in kind_text:
+        candidates.append(_kubernetes_candidate("StatefulSet", "workload_controller", "component_source", confidence, rationale, mapping_evidence))
+    elif kind_text.startswith("Job"):
+        candidates.append(_kubernetes_candidate("Job", "workload_controller", "component_source", confidence, rationale, mapping_evidence))
+    elif "Deployment" in kind_text:
+        candidates.append(_kubernetes_candidate("Deployment", "workload_controller", "component_source", confidence, rationale, mapping_evidence))
+
+    service_findings = _service_port_findings(component, findings["networking"])
+    service_evidence = _finding_evidence(service_findings)
+    if (
+        "Service" in kind_text
+        and "no service" not in kind_text.lower()
+        and _service_candidate_allowed(component)
+        and service_evidence
+    ):
+        evidence = service_evidence
+        candidates.append(_kubernetes_candidate("Service", "companion_object", _evidence_type(evidence, "component_source", service_findings[0].subject), confidence, "inbound port evidence supports a Service candidate", evidence))
+    for finding in findings["storage"]:
+        if finding.subject.endswith("persistent_volume"):
+            candidates.append(_kubernetes_candidate("PVC", "companion_object", "compose_volume", finding.confidence, "persistent compose volume requires a PVC candidate", finding.evidence))
+            break
+    config_names = [name for name in component.environment if name not in component.secret_candidates]
+    config_evidence = _finding_evidence(findings["configuration"])
+    if config_names and config_evidence:
+        candidates.append(_kubernetes_candidate("ConfigMap", "companion_object", "configuration_reference", "derived", "non-secret environment entries are ConfigMap key candidates", config_evidence))
+    secret_evidence = _finding_evidence(findings["secrets"])
+    if component.secret_candidates and secret_evidence:
+        candidates.append(_kubernetes_candidate("Secret", "companion_object", "configuration_reference", "derived", "secret-like environment entries are Secret key candidates", secret_evidence))
+    for finding in findings["networking"]:
+        if finding.subject.endswith("ingress_host"):
+            candidates.append(_kubernetes_candidate("Ingress", "companion_object", "component_source", finding.confidence, "repository routing host is an Ingress candidate", finding.evidence))
+            break
+    return candidates
+
+
+def _kubernetes_candidate(
+    kind: str,
+    candidate_role: str,
+    evidence_type: str,
+    confidence: str,
+    rationale: str,
+    evidence: list[Evidence],
+) -> KubernetesObjectCandidate:
+    return KubernetesObjectCandidate(
+        kind=kind,
+        candidate_role=candidate_role,
+        evidence_type=evidence_type,
+        confidence=confidence,
+        rationale=rationale,
+        evidence=list(evidence),
+    )
+
+
+def _service_candidate_allowed(component: Component) -> bool:
+    workload = component.workload_candidate.lower()
+    return not (
+        workload.startswith("job")
+        or "prestart" in workload
+        or (_is_worker_command(component.command) and not component.container_ports)
+    )
+
+
+def _published_port_number(spec: str) -> int | None:
+    segments = spec.strip().split("/", 1)[0].split(":")
+    if len(segments) < 2:
+        return None
+    token = segments[-2]
+    return int(token) if token.isdigit() else None
+
+
+def _service_port_findings(
+    component: Component, networking: list[Finding]
+) -> list[Finding]:
+    subjects = {
+        f"{component.name}.container_port",
+        f"{component.name}.published_port",
+        "app.server_port",
+        "app.default_port",
+        "service.target_port",
+    }
+    return [finding for finding in networking if finding.subject in subjects]
+
+
+def _evidence_type(
+    evidence: list[Evidence], fallback: str, finding_subject: str | None = None
+) -> str:
+    is_port_finding = finding_subject in {
+        "app.server_port",
+        "app.default_port",
+        "service.target_port",
+    } or bool(
+        finding_subject
+        and finding_subject.endswith((".container_port", ".published_port"))
+    )
+    if is_port_finding and any(
+        e.path.endswith(
+            ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml")
+        )
+        for e in evidence
+    ):
+        return "compose_port"
+    return fallback
+
+
+def _finding_evidence(findings: list[Finding]) -> list[Evidence]:
+    return [evidence for finding in findings for evidence in finding.evidence]
+
+
+def _dedupe_evidence(evidence: list[Evidence]) -> list[Evidence]:
+    seen: set[tuple[str, str, str | None, int, int]] = set()
+    deduped: list[Evidence] = []
+    for item in evidence:
+        key = (item.path, item.selector, item.symbol, item.start_line, item.end_line)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(item)
+    return deduped
 
 
 _MIGRATION_QUESTIONS = [
@@ -462,11 +1023,12 @@ def _question_ports_and_services(result: AnalysisResult) -> MigrationQuestionAns
         for finding in result.networking
         if "port" in finding.subject.lower() or "context_path" in finding.subject
     ]
-    parts = [
+    port_parts = [
         f"{component.name} targetPort {', '.join(str(port) for port in component.container_ports)}"
         for component in result.components
         if component.container_ports
     ]
+    parts = list(port_parts)
     if result.workload_mappings:
         parts.append(
             "; ".join(
@@ -476,8 +1038,41 @@ def _question_ports_and_services(result: AnalysisResult) -> MigrationQuestionAns
         )
     if findings:
         parts.extend(f"{finding.subject}: {finding.value}" for finding in findings if finding.subject.startswith("k8s."))
-    missing = [] if parts else ["container port or Service targetPort"]
-    status = "answered" if parts and not missing else ("partial" if parts else "unresolved")
+
+    service_components = {
+        profile.name
+        for profile in result.workload_profiles
+        if any(
+            candidate.kind == "Service"
+            for candidate in profile.runtime_deployment_profile.kubernetes_candidates
+        )
+    }
+    port_components = {
+        component.name
+        for component in result.components
+        if component.container_ports or component.published_ports
+    }
+    missing = [
+        f"Service targetPort for {mapping.component}"
+        for mapping in result.workload_mappings
+        if mapping.component not in port_components
+        and mapping.component not in service_components
+        and not mapping.kubernetes_kind.startswith("Job")
+        and "no Service" not in mapping.kubernetes_kind
+    ]
+    port_or_service_evidence = bool(
+        port_parts
+        or service_components
+        or any("port" in finding.subject.lower() for finding in findings)
+    )
+    if not parts:
+        missing = ["container port or Service targetPort"]
+    if port_or_service_evidence and not missing:
+        status = "answered"
+    elif parts:
+        status = "partial"
+    else:
+        status = "unresolved"
     return MigrationQuestionAnswer(
         id="ports_and_services",
         question=question,
@@ -520,7 +1115,13 @@ def _question_configmaps_and_secrets(result: AnalysisResult) -> MigrationQuestio
         or finding.subject.startswith("k8s.configmap_ref.")
     ]
     secrets = result.secrets
-    if not config and not secrets:
+    unresolved_values = [
+        item
+        for item in result.unresolved_operational_inputs
+        if ".environment." in item.subject
+        and item.reason.startswith("Compose passes this environment variable through")
+    ]
+    if not config and not secrets and not unresolved_values:
         return MigrationQuestionAnswer(
             id="configmaps_and_secrets",
             question=question,
@@ -528,13 +1129,23 @@ def _question_configmaps_and_secrets(result: AnalysisResult) -> MigrationQuestio
             answer="No ConfigMap or Secret candidates were detected.",
             missing=["ConfigMap/Secret candidates were not detected in scanned repository facts"],
         )
+    unresolved_secrets = [
+        item for item in unresolved_values if "Secret" in item.kubernetes_effect
+    ]
+    unresolved_config = [
+        item for item in unresolved_values if "ConfigMap" in item.kubernetes_effect
+    ]
     return MigrationQuestionAnswer(
         id="configmaps_and_secrets",
         question=question,
-        status="answered",
-        answer=f"ConfigMap candidates: {len(config)}; Secret candidates: {len(secrets)}",
+        status="partial" if unresolved_values else "answered",
+        answer=(
+            f"ConfigMap candidates: {len(config) + len(unresolved_config)}; "
+            f"Secret candidates: {len(secrets) + len(unresolved_secrets)}"
+        ),
         basis=[_basis("configuration", finding.subject, finding.evidence) for finding in config]
         + [_basis("secrets", finding.subject, finding.evidence) for finding in secrets],
+        missing=_dedupe([item.needed_input for item in unresolved_values]),
     )
 
 
@@ -809,6 +1420,12 @@ def _analyze_service(
 ) -> None:
     component = Component(name=service.name, workload_candidate="")
     component.source_files.append(compose_path)
+    component.depends_on = [
+        str(dependency.value["service"])
+        if isinstance(dependency.value, dict)
+        else str(dependency.value)
+        for dependency in service.depends_on
+    ]
 
     image_value = service.image.value if service.image else None
     component.image = image_value
@@ -841,9 +1458,53 @@ def _analyze_service(
 
     # Environment / secrets referenced by this service.
     for entry in service.environment:
-        name = _env_name(entry.value)
+        raw = str(entry.value)
+        name = _env_name(raw)
         if name and name not in component.environment:
             component.environment.append(name)
+        if not name:
+            continue
+        if "=" not in raw:
+            secret = is_secret(name)
+            result.unresolved_operational_inputs.append(
+                Unresolved(
+                    subject=f"{service.name}.environment.{name}",
+                    reason=(
+                        "Compose passes this environment variable through without a "
+                        "repository-backed value"
+                    ),
+                    needed_input=(
+                        f"runtime secret value for {name}"
+                        if secret
+                        else f"runtime value for {name}"
+                    ),
+                    kubernetes_effect=(
+                        f"Kubernetes {'Secret' if secret else 'ConfigMap'} data key {name}"
+                    ),
+                )
+            )
+            continue
+        if is_secret(name):
+            result.secrets.append(
+                Finding(
+                    subject=f"{service.name}.secret.{name}",
+                    value="<redacted>",
+                    confidence="explicit",
+                    kubernetes_effect="Kubernetes Secret key candidate for this Compose service",
+                    evidence=[_ev(entry, compose_path, "env")],
+                )
+            )
+        else:
+            value = raw.partition("=")[2]
+            result.configuration.append(
+                Finding(
+                    subject=f"{service.name}.config.{name}",
+                    value=value,
+                    confidence="explicit",
+                    kubernetes_effect="ConfigMap key candidate for this Compose service",
+                    evidence=[_ev(entry, compose_path, "env")],
+                )
+            )
     component.secret_candidates = [n for n in component.environment if is_secret(n)]
 
     # Ports.
@@ -859,7 +1520,26 @@ def _analyze_service(
                 evidence=port_ev,
             )
         )
-    component.published_ports = [str(p.value) for p in service.ports]
+    for published in service.ports:
+        published_port = _published_port_number(str(published.value))
+        if published_port is None:
+            continue
+        result.networking.append(
+            Finding(
+                subject=f"{service.name}.published_port",
+                value=published_port,
+                confidence="explicit",
+                kubernetes_effect=(
+                    f"{service.name} published host port evidence from Compose ports entry"
+                ),
+                evidence=[_ev(published, compose_path, "ports.published")],
+            )
+        )
+    component.published_ports = [
+        str(p.value)
+        for p in service.ports
+        if _published_port_number(str(p.value)) is not None
+    ]
 
     # Ingress host candidates from Traefik router labels (deduplicated by host).
     seen_hosts: set[str] = set()
@@ -1113,6 +1793,7 @@ def _service_workload(
     if service.image is not None:
         image_key = str(service.image.value).split(":", 1)[0].split("/")[-1].lower()
     has_persistent = any("PVC size" == u for u in component.unresolved)
+    has_inbound_port = bool(component.container_ports or component.published_ports)
 
     base_ev = [
         Evidence(
@@ -1125,8 +1806,16 @@ def _service_workload(
     ]
 
     if image_key in _DB_IMAGE_RUNTIMES or has_persistent:
-        kind = "StatefulSet + headless Service (or external managed database)"
-        rationale = "Stateful component with persistent data; not a stateless Deployment."
+        kind = (
+            "StatefulSet + headless Service (or external managed database)"
+            if has_inbound_port
+            else "StatefulSet (or external managed database)"
+        )
+        rationale = (
+            "Stateful component with persistent data; not a stateless Deployment."
+            if has_inbound_port
+            else "Stateful component with persistent data; no inbound port evidence supports a Service."
+        )
         unresolved = ["replica count", "CPU/memory", "PVC size", "StorageClass", "DB HA & backup policy"]
     elif str(service.command.value if service.command else "").find("prestart") != -1 or (
         service.command is not None and "prestart" in " ".join(service.command.value)
@@ -1142,13 +1831,20 @@ def _service_workload(
             "readiness is a process/broker-connection check, not an HTTP probe."
         )
         unresolved = ["replica count", "CPU/memory"]
-    elif image_key == "adminer":
+    elif image_key == "adminer" and has_inbound_port:
         kind = "Deployment + ClusterIP Service (optional admin tool)"
         rationale = "Optional developer/admin UI; deploy only if needed, keep internal."
         unresolved = ["whether to deploy at all", "replica count", "CPU/memory"]
-    elif component.runtime == "Nginx (static assets)":
+    elif component.runtime == "Nginx (static assets)" and has_inbound_port:
         kind = "Deployment + ClusterIP Service (static assets via Nginx)"
         rationale = "Stateless static-asset server; horizontally scalable."
+        unresolved = ["replica count", "CPU/memory"]
+    elif not has_inbound_port:
+        kind = "Deployment"
+        rationale = (
+            "Long-running component candidate, but scanned repository facts contain no inbound "
+            "port evidence for a Service."
+        )
         unresolved = ["replica count", "CPU/memory"]
     else:
         kind = "Deployment + ClusterIP Service"
@@ -1439,19 +2135,32 @@ def _analyze_startup(
 ) -> None:
     order: list[str] = []
 
-    # DB readiness gates dependents (depends_on condition service_healthy).
+    # Every Compose dependency is startup-order evidence. Conditions add
+    # detail, but neither form specifies the Kubernetes mechanism to use.
     for service in compose.services:
         for dep in service.depends_on:
-            if isinstance(dep.value, dict) and dep.value.get("condition") == "service_healthy":
-                result.startup_order.append(
-                    Finding(
-                        subject=f"{service.name}.waits_for.{dep.value['service']}",
-                        value="service_healthy",
-                        confidence="explicit",
-                        kubernetes_effect="ordering: gate via initContainer/readiness on the dependency",
-                        evidence=[_ev(dep, compose_path)],
-                    )
+            dependency = (
+                str(dep.value["service"])
+                if isinstance(dep.value, dict)
+                else str(dep.value)
+            )
+            condition = (
+                str(dep.value.get("condition") or "startup_order")
+                if isinstance(dep.value, dict)
+                else "startup_order"
+            )
+            result.startup_order.append(
+                Finding(
+                    subject=f"{service.name}.waits_for.{dependency}",
+                    value=condition,
+                    confidence="explicit",
+                    kubernetes_effect=(
+                        "Compose startup-order evidence; choose an explicit Kubernetes "
+                        "coordination mechanism if one is required."
+                    ),
+                    evidence=[_ev(dep, compose_path)],
                 )
+            )
     if any(_has_db_service(compose)):
         order.append("database becomes ready")
 
@@ -1483,20 +2192,11 @@ def _analyze_startup(
                     )
                 )
 
-    # Backend waits for prestart completion.
+    # Keep the aggregate startup summary for completion-gated services.
     for service in compose.services:
         for dep in service.depends_on:
             if isinstance(dep.value, dict) and dep.value.get("condition") == "service_completed_successfully":
                 order.append(f"{service.name} starts")
-                result.startup_order.append(
-                    Finding(
-                        subject=f"{service.name}.waits_for.{dep.value['service']}",
-                        value="service_completed_successfully",
-                        confidence="explicit",
-                        kubernetes_effect="app Deployment must start only after the init Job completes",
-                        evidence=[_ev(dep, compose_path)],
-                    )
-                )
 
     if order:
         result.startup_order.insert(

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..models import AnalysisResult, Component
+from ..models import AnalysisResult, Component, WorkloadProfile
 
 
 def to_markdown(result: AnalysisResult) -> str:
@@ -25,7 +25,10 @@ def to_markdown(result: AnalysisResult) -> str:
     out(f"- Schema version: {result.schema_version}")
     out("")
 
-    _components_section(out, result)
+    if result.workload_profiles:
+        _workload_profiles_section(out, result)
+    else:
+        _components_section(out, result)
     _workloads_section(out, result)
     _networking_section(out, result)
     _storage_section(out, result)
@@ -59,6 +62,149 @@ def _components_section(out, result: AnalysisResult) -> None:
         return
     for comp in result.components:
         _component_block(out, comp)
+
+
+def _workload_profiles_section(out, result: AnalysisResult) -> None:
+    out("## 1. Workload profiles")
+    out("")
+    for profile in result.workload_profiles:
+        _workload_profile_block(out, profile)
+
+
+def _workload_profile_block(out, profile: WorkloadProfile) -> None:
+    image = profile.image_build_profile
+    runtime = profile.runtime_deployment_profile
+
+    out(f"### {profile.name}")
+    out("")
+    if profile.role:
+        out(f"- Role: {profile.role}")
+    out(f"- Source files: {', '.join(f'`{path}`' for path in profile.source_files) or '—'}")
+    out("")
+
+    out("#### Image build profile")
+    out("")
+    image_facts = [
+        ("Build tool", image.build_tool),
+        ("Build command", image.build_command),
+        ("Build context", image.build_context),
+        ("Dockerfile", image.dockerfile),
+        ("Build artifact", image.build_artifact),
+        ("Packaging", image.packaging),
+        ("Image", image.image),
+        ("Base image", image.base_image),
+        ("Builder image", image.builder_image),
+        ("Image source", image.image_source),
+        ("Build args", ", ".join(image.build_args) if image.build_args else None),
+    ]
+    _profile_facts(out, image_facts)
+    _profile_evidence(out, image.evidence)
+    out("")
+
+    out("#### Runtime deployment profile")
+    out("")
+    runtime_facts = [
+        ("Runtime", runtime.runtime),
+        ("Language", runtime.language),
+        ("Application server", runtime.application_server),
+        ("Command", " ".join(runtime.command) if runtime.command else None),
+        ("Workers", str(runtime.workers) if runtime.workers is not None else None),
+        ("HTTP context path", runtime.context_path),
+        ("Frameworks", ", ".join(runtime.frameworks) if runtime.frameworks else None),
+        (
+            "Container ports",
+            ", ".join(str(port) for port in runtime.container_ports)
+            if runtime.container_ports
+            else None,
+        ),
+        ("Published ports", ", ".join(runtime.published_ports) if runtime.published_ports else None),
+        ("Environment", ", ".join(runtime.environment) if runtime.environment else None),
+        (
+            "ConfigMap candidates",
+            ", ".join(runtime.configmap_candidates) if runtime.configmap_candidates else None,
+        ),
+        (
+            "Secret candidates",
+            ", ".join(runtime.secret_candidates) if runtime.secret_candidates else None,
+        ),
+        ("Volumes", ", ".join(runtime.volumes) if runtime.volumes else None),
+    ]
+    _profile_facts(out, runtime_facts)
+    _profile_evidence(out, runtime.evidence)
+    out("")
+
+    _profile_candidates_section(out, "Kubernetes workload controller candidates", runtime.kubernetes_candidates, "workload_controller")
+    _profile_candidates_section(out, "Companion object candidates", runtime.kubernetes_candidates, "companion_object")
+
+    out("#### Workload relationships")
+    out("")
+    if runtime.relationships:
+        for relationship in runtime.relationships:
+            out(
+                f"- {relationship.source} -> {relationship.target}: {relationship.description} "
+                f"({relationship.relationship_type}, {relationship.confidence})"
+            )
+    else:
+        out("_No workload relationships detected in scanned repository facts._")
+    out("")
+
+    out("#### Unresolved decisions")
+    out("")
+    decisions = [
+        *image.unresolved,
+        *image.open_decisions,
+        *runtime.unresolved,
+        *runtime.open_decisions,
+        *(
+            decision
+            for candidate in (
+                *runtime.exposure_candidates,
+                *runtime.probe_candidates,
+                *runtime.kubernetes_candidates,
+            )
+            for decision in getattr(candidate, "open_decisions", ())
+        ),
+        *(decision for relationship in runtime.relationships for decision in relationship.open_decisions),
+    ]
+    decisions = list(dict.fromkeys(decisions))
+    if decisions:
+        for decision in decisions:
+            out(f"- {decision}")
+    else:
+        out("_None recorded._")
+    out("")
+
+
+def _profile_facts(out, facts) -> None:
+    emitted = False
+    for label, value in facts:
+        if value is not None:
+            out(f"- {label}: `{value}`")
+            emitted = True
+    if not emitted:
+        out("_No profile facts detected in scanned repository facts._")
+
+
+def _profile_evidence(out, evidence) -> None:
+    if evidence:
+        out(f"- Evidence: {_fmt_evidence(evidence)}")
+
+
+def _profile_candidates_section(out, heading: str, candidates, candidate_role: str) -> None:
+    out(f"#### {heading}")
+    out("")
+    relevant = [candidate for candidate in candidates if candidate.candidate_role == candidate_role]
+    if not relevant:
+        label = (
+            "workload controller"
+            if candidate_role == "workload_controller"
+            else "companion object"
+        )
+        out(f"_No {label} candidates detected in scanned repository facts._")
+    else:
+        for candidate in relevant:
+            out(f"- {candidate.kind} candidate: {candidate.rationale} ({candidate.confidence})")
+    out("")
 
 
 def _component_block(out, comp: Component) -> None:
@@ -117,6 +263,18 @@ def _component_block(out, comp: Component) -> None:
 def _workloads_section(out, result: AnalysisResult) -> None:
     out("## 2. Kubernetes workload mappings")
     out("")
+    if result.workload_profiles:
+        out("| Component | Kubernetes candidates | Rationale |")
+        out("| --- | --- | --- |")
+        for profile in result.workload_profiles:
+            candidates = profile.runtime_deployment_profile.kubernetes_candidates
+            kinds = " + ".join(dict.fromkeys(candidate.kind for candidate in candidates)) or "—"
+            rationales = "; ".join(
+                f"{candidate.kind}: {candidate.rationale}" for candidate in candidates
+            ) or "No candidate derived from scanned repository facts."
+            out(f"| {profile.name} | {kinds} | {rationales} |")
+        out("")
+        return
     if not result.workload_mappings:
         out("_No workloads derived._")
         out("")

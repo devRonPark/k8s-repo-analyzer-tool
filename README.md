@@ -155,7 +155,7 @@ OpenAI 호환 function schema는 [`integrations/tool-schema.json`](./integration
 JSON 결과는 다음 최상위 section을 포함합니다(안정적인 key 순서).
 
 `schema_version`, `repository`, `detected_files`, `components`,
-`workload_mappings`, `networking`, `configuration`, `secrets`, `storage`,
+`workload_profiles`, `workload_mappings`, `networking`, `configuration`, `secrets`, `storage`,
 `runtime_dependencies`, `startup_order`, `health_checks`,
 `build_time_constraints`, `container_image`, `unresolved_operational_inputs`,
 `warnings`, `unsupported_constructs`.

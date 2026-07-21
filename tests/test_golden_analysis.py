@@ -95,6 +95,16 @@ def test_workload_mappings(result):
     assert "optional" in mapping["adminer"].lower()
 
 
+def test_legacy_component_fields_remain_populated(result):
+    backend = next(component for component in result.components if component.name == "backend")
+    assert backend.dockerfile == "backend/Dockerfile"
+    assert backend.container_ports == [8000]
+    assert backend.workload_candidate
+
+    mapping = next(mapping for mapping in result.workload_mappings if mapping.component == "backend")
+    assert "Deployment" in mapping.kubernetes_kind
+
+
 def test_secrets_detected(result):
     subjects = {f.subject for f in result.secrets}
     assert "secret.SECRET_KEY" in subjects

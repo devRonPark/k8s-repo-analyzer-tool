@@ -172,7 +172,9 @@ def _parse_service(node: dict, service: ComposeService, result: ComposeFile) -> 
             _normalise_command(node["command"]), f"{base}.command", start, end
         )
 
-    service.environment = _collect_kv(node.get("environment"), f"{base}.environment")
+    service.environment = _collect_kv(
+        node.get("environment"), f"{base}.environment", preserve_unassigned=True
+    )
     service.env_files = _collect_scalar_list(node.get("env_file"), f"{base}.env_file")
     service.ports = _collect_scalar_list(node.get("ports"), f"{base}.ports")
     service.volumes = _collect_scalar_list(node.get("volumes"), f"{base}.volumes")
@@ -200,7 +202,9 @@ def _collect_scalar_list(node: object, selector: str) -> list[Located]:
     return items
 
 
-def _collect_kv(node: object, selector: str) -> list[Located]:
+def _collect_kv(
+    node: object, selector: str, *, preserve_unassigned: bool = False
+) -> list[Located]:
     """Collect key=value style entries from either a list or a mapping."""
 
     items: list[Located] = []
@@ -211,7 +215,11 @@ def _collect_kv(node: object, selector: str) -> list[Located]:
     elif isinstance(node, dict):
         for key in node:
             start, end = _map_key_range(node, key)
-            raw = f"{key}={node[key]}"
+            raw = (
+                str(key)
+                if preserve_unassigned and node[key] is None
+                else f"{key}={node[key]}"
+            )
             items.append(Located(raw, f"{selector}.{key}", start, end))
     return items
 
