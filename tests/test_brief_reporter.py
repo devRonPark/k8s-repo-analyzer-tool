@@ -85,6 +85,20 @@ def test_brief_reporter_renders_and_enriches_profile_open_decisions(golden_repo)
     assert unknowns.count("Choose rollout strategy.") == 1
 
 
+def test_brief_reporter_includes_generated_profile_unresolved_decisions(golden_repo):
+    result = analyze_repository(str(golden_repo))
+
+    brief = to_brief(result)
+    workload_section = brief[
+        brief.index("## Workload profiles") : brief.index("## Seven migration questions")
+    ]
+    unknowns = _question_section(brief, result, "repository_unknowns")
+
+    for decision in ("replica count", "CPU/memory", "PVC size", "StorageClass"):
+        assert decision in workload_section
+        assert decision in unknowns
+
+
 def test_brief_reporter_scopes_missing_profile_facts_to_scanned_repository_facts():
     result = AnalysisResult(
         repository=RepositoryMetadata(name="repo", profile="kubernetes-p0", file_count=0),

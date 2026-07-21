@@ -908,6 +908,7 @@ def test_final_answer_instruction_prefers_workload_profiles():
     ][0] == {
         "kind": "Deployment",
         "candidate_role": "workload_controller",
+        "evidence_type": "component_source",
         "confidence": "derived",
         "rationale": "stateless HTTP application",
     }
@@ -958,3 +959,175 @@ def test_compact_workload_profiles_are_small_and_keep_answer_relevant_fields(gol
     assert frontend["runtime_deployment_profile"]["open_decisions"]
     assert "evidence" not in set(_nested_keys(compact_profiles))
     assert ":null" not in serialized_profiles
+
+
+def test_compact_workload_profiles_retains_projection_contract():
+    module = _load_script()
+    evidence = [
+        {
+            "path": "compose.yml",
+            "selector": "$.services.backend",
+            "start_line": 1,
+            "end_line": 1,
+        }
+    ]
+    analysis = {
+        "workload_profiles": [
+            {
+                "name": "backend",
+                "source_files": ["compose.yml"],
+                "image_build_profile": {
+                    "build_tool": "docker",
+                    "build_command": "docker build",
+                    "build_context": ".",
+                    "dockerfile": "Dockerfile",
+                    "build_args": ["API_URL"],
+                    "build_artifact": "app.jar",
+                    "packaging": "jar",
+                    "image": "example/backend:latest",
+                    "base_image": "eclipse-temurin:21-jre",
+                    "builder_image": "eclipse-temurin:21-jdk",
+                    "image_source": "compose",
+                    "unresolved": ["image tag"],
+                    "open_decisions": ["Choose image registry."],
+                    "evidence": evidence,
+                },
+                "runtime_deployment_profile": {
+                    "language": "Java",
+                    "runtime": "JVM",
+                    "frameworks": ["Spring Boot"],
+                    "application_server": "Tomcat",
+                    "command": ["java", "-jar", "app.jar"],
+                    "workers": 2,
+                    "container_ports": [8080],
+                    "published_ports": ["8080:8080"],
+                    "context_path": "/api",
+                    "environment": ["DATABASE_URL"],
+                    "configmap_candidates": ["LOG_LEVEL"],
+                    "secret_candidates": ["DATABASE_URL"],
+                    "volumes": ["data:/data"],
+                    "unresolved": ["replica count"],
+                    "open_decisions": ["Choose rollout strategy."],
+                    "evidence": evidence,
+                    "exposure_candidates": [
+                        {
+                            "port": 8080,
+                            "source": "compose port",
+                            "evidence_type": "compose_port",
+                            "confidence": "explicit",
+                            "service_candidate": True,
+                            "description": "HTTP service port",
+                            "evidence": evidence,
+                        }
+                    ],
+                    "probe_candidates": [
+                        {
+                            "probe_type": "readiness",
+                            "value": "/health",
+                            "evidence_type": "compose_healthcheck",
+                            "confidence": "explicit",
+                            "open_decisions": ["Choose probe thresholds."],
+                            "evidence": evidence,
+                        }
+                    ],
+                    "kubernetes_candidates": [
+                        {
+                            "kind": "Deployment",
+                            "candidate_role": "workload_controller",
+                            "evidence_type": "component_source",
+                            "confidence": "derived",
+                            "rationale": "stateless application",
+                            "open_decisions": ["Choose replica count."],
+                            "evidence": evidence,
+                        }
+                    ],
+                    "relationships": [
+                        {
+                            "source": "backend",
+                            "target": "database",
+                            "relationship_type": "startup_order",
+                            "evidence_type": "compose_depends_on",
+                            "description": "Backend waits for the database.",
+                            "confidence": "unresolved",
+                            "open_decisions": ["Choose dependency coordination."],
+                            "evidence": evidence,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+
+    profiles = json.loads(module._compact_workload_profiles(analysis))
+    image = profiles[0]["image_build_profile"]
+    runtime = profiles[0]["runtime_deployment_profile"]
+
+    assert set(image) == {
+        "build_tool",
+        "build_command",
+        "build_context",
+        "dockerfile",
+        "build_args",
+        "build_artifact",
+        "packaging",
+        "image",
+        "base_image",
+        "builder_image",
+        "image_source",
+        "unresolved",
+        "open_decisions",
+    }
+    assert set(runtime) == {
+        "language",
+        "runtime",
+        "frameworks",
+        "application_server",
+        "command",
+        "workers",
+        "container_ports",
+        "published_ports",
+        "context_path",
+        "environment",
+        "configmap_candidates",
+        "secret_candidates",
+        "volumes",
+        "unresolved",
+        "open_decisions",
+        "exposure_candidates",
+        "probe_candidates",
+        "kubernetes_candidates",
+        "relationships",
+    }
+    assert set(runtime["exposure_candidates"][0]) == {
+        "port",
+        "source",
+        "evidence_type",
+        "confidence",
+        "service_candidate",
+        "description",
+    }
+    assert set(runtime["probe_candidates"][0]) == {
+        "probe_type",
+        "value",
+        "evidence_type",
+        "confidence",
+        "open_decisions",
+    }
+    assert set(runtime["kubernetes_candidates"][0]) == {
+        "kind",
+        "candidate_role",
+        "evidence_type",
+        "confidence",
+        "rationale",
+        "open_decisions",
+    }
+    assert set(runtime["relationships"][0]) == {
+        "source",
+        "target",
+        "relationship_type",
+        "evidence_type",
+        "description",
+        "confidence",
+        "open_decisions",
+    }
+    assert "evidence" not in set(_nested_keys(profiles))

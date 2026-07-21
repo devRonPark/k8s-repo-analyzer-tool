@@ -225,7 +225,9 @@ def _profile_open_decisions(profile: WorkloadProfile) -> list[str]:
     image = profile.image_build_profile
     runtime = profile.runtime_deployment_profile
     decisions = [
+        *image.unresolved,
         *image.open_decisions,
+        *runtime.unresolved,
         *runtime.open_decisions,
         *(
             decision

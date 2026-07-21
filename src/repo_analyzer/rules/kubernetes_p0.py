@@ -468,7 +468,34 @@ def _workload_relationships(
             ),
             None,
         )
-        if startup_finding is not None:
+        if target not in component_names:
+            condition = (
+                f" with condition {startup_finding.value}"
+                if startup_finding is not None
+                else ""
+            )
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=target,
+                    relationship_type="startup_order",
+                    evidence_type="compose_depends_on",
+                    description=(
+                        f"Compose declares {component.name} depends on unresolved external "
+                        f"target {target}{condition}."
+                    ),
+                    confidence="unresolved",
+                    evidence=(
+                        list(startup_finding.evidence)
+                        if startup_finding is not None
+                        else list(mapping_evidence)
+                    ),
+                    open_decisions=[
+                        f"Confirm how external dependency {target} is provided and coordinated."
+                    ],
+                )
+            )
+        elif startup_finding is not None:
             relationships.append(
                 WorkloadRelationship(
                     source=component.name,
@@ -483,7 +510,7 @@ def _workload_relationships(
                     evidence=list(startup_finding.evidence),
                 )
             )
-        elif target in component_names:
+        else:
             relationships.append(
                 WorkloadRelationship(
                     source=component.name,
@@ -493,23 +520,6 @@ def _workload_relationships(
                     description=f"Compose declares {component.name} depends on {target}.",
                     confidence="derived",
                     evidence=list(mapping_evidence),
-                )
-            )
-        else:
-            relationships.append(
-                WorkloadRelationship(
-                    source=component.name,
-                    target=target,
-                    relationship_type="startup_order",
-                    evidence_type="compose_depends_on",
-                    description=(
-                        f"Compose declares {component.name} depends on unresolved external target {target}."
-                    ),
-                    confidence="unresolved",
-                    evidence=list(mapping_evidence),
-                    open_decisions=[
-                        f"Confirm how external dependency {target} is provided and coordinated."
-                    ],
                 )
             )
 

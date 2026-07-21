@@ -150,6 +150,36 @@ def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
     )
 
 
+def test_compose_undefined_dependency_is_an_unresolved_relationship(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  backend:\n"
+        "    image: example/backend:latest\n"
+        "    depends_on:\n"
+        "      missing-db:\n"
+        "        condition: service_healthy\n"
+    )
+
+    result = analyze_repository(str(tmp_path))
+
+    backend = _profile(result, "backend")
+    relationship = backend.runtime_deployment_profile.relationships[0]
+    startup_finding = next(
+        finding
+        for finding in result.startup_order
+        if finding.subject == "backend.waits_for.missing-db"
+    )
+    assert relationship.target == "missing-db"
+    assert relationship.relationship_type == "startup_order"
+    assert relationship.evidence_type == "compose_depends_on"
+    assert relationship.confidence == "unresolved"
+    assert relationship.evidence == startup_finding.evidence
+    assert "service_healthy" in relationship.description
+    assert relationship.open_decisions == [
+        "Confirm how external dependency missing-db is provided and coordinated."
+    ]
+
+
 def test_workload_profile_does_not_infer_build_target_from_evidence_path():
     frontend = Component(name="frontend", workload_candidate="Deployment")
     result = AnalysisResult(

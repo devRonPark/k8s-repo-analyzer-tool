@@ -425,8 +425,12 @@ def _compact_workload_profiles(analysis: dict[str, Any]) -> str:
                 "build_command",
                 "build_context",
                 "dockerfile",
+                "build_args",
+                "build_artifact",
+                "packaging",
                 "image",
                 "base_image",
+                "builder_image",
                 "image_source",
                 "unresolved",
                 "open_decisions",
@@ -457,10 +461,32 @@ def _compact_workload_profiles(analysis: dict[str, Any]) -> str:
         )
         projected_children = (
             (
+                "exposure_candidates",
+                (
+                    "port",
+                    "source",
+                    "evidence_type",
+                    "confidence",
+                    "service_candidate",
+                    "description",
+                ),
+            ),
+            (
+                "probe_candidates",
+                (
+                    "probe_type",
+                    "value",
+                    "evidence_type",
+                    "confidence",
+                    "open_decisions",
+                ),
+            ),
+            (
                 "kubernetes_candidates",
                 (
                     "kind",
                     "candidate_role",
+                    "evidence_type",
                     "confidence",
                     "rationale",
                     "open_decisions",
@@ -472,18 +498,9 @@ def _compact_workload_profiles(analysis: dict[str, Any]) -> str:
                     "source",
                     "target",
                     "relationship_type",
+                    "evidence_type",
                     "description",
                     "confidence",
-                    "open_decisions",
-                ),
-            ),
-            (
-                "probe_candidates",
-                (
-                    "probe_type",
-                    "value",
-                    "confidence",
-                    "evidence_type",
                     "open_decisions",
                 ),
             ),
