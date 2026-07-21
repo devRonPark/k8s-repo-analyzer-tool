@@ -28,6 +28,36 @@ For migration planning, a developer first needs to picture the application as a
 set of workloads, their build/run characteristics, their ports, and their
 dependencies.
 
+Primary-source fact check: a Kubernetes migration handoff should capture both
+how each workload image is produced and how each workload runs. These should not
+be collapsed into one overloaded `build method` term. Use an Image Build Profile
+for image production facts and a Runtime Deployment Profile for start, port,
+config, storage, probe, lifecycle, and relationship facts. See
+`docs/research/2026-07-21-workload-build-runtime-profile-fact-check.md`.
+
+Additional primary-source corrections:
+
+- Kubernetes workload controller candidates, such as Deployment, StatefulSet,
+  and Job, must be separated from companion object candidates such as Service,
+  PVC, ConfigMap, Secret, Ingress, or Gateway.
+- A container port, Dockerfile `EXPOSE`, Compose `ports`, and a Kubernetes
+  Service port are related evidence, but they do not mean the same thing.
+- Service type, IngressClass, host, TLS, and Gateway policy are unresolved
+  unless existing repository facts declare them.
+- ConfigMap candidates should represent non-confidential configuration keys and
+  how workloads consume them. Secret candidates should name sensitive keys and
+  consumers, not secret values.
+- Dockerfile or Compose health checks can inform Probe Candidates, but they
+  should not be copied as final Kubernetes startup/readiness/liveness probes
+  without semantic review.
+- A generic health check is not automatically both readiness and liveness.
+- Compose `depends_on` is startup-order evidence. It is not by itself proof of
+  production readiness semantics or runtime traffic.
+- Database persistence evidence does not by itself imply that an application
+  workload needs a PVC.
+- Compose profiles and ignored override files can change the effective service
+  set, so they must be surfaced as coverage caveats when present.
+
 ## Scope
 
 - Change only the live final-answer instruction in
@@ -53,28 +83,54 @@ sections:
 2. `## 워크로드 구성`
    - Describe each detected workload in a short paragraph or compact bullet
      group.
-   - Include, when present in analyzer facts: role, programming language,
-     runtime/framework, build tool, build method, build command, run command,
-     Dockerfile/base image, exposed container ports, published ports, persistent
-     volumes, and Kubernetes workload candidate.
-   - Mark derived Kubernetes mappings as candidates, not final manifests.
+   - Include the workload role and language/runtime/framework when present in
+     analyzer facts.
+   - Include the Image Build Profile when present: build tool, image build path
+     or context, Dockerfile/buildpack/Jib/prebuilt-image source, build command,
+     produced artifact, and base or builder image.
+   - Include the Runtime Deployment Profile when present: image reference, start
+     command and arguments, exposed or listening container ports, published or
+     Service-facing ports, Exposure Candidates, configuration candidates, Secret
+     candidates, persistent volumes or mounts, Probe Candidates, lifecycle or
+     init behavior, and Kubernetes workload controller candidate.
+   - Mark derived Kubernetes mappings as Workload Candidates, not final
+     manifests.
    - For missing fields, say the value was not detected from repository facts
      instead of inventing it.
+   - Include only compact primary file references when they materially help
+     verify a workload fact, such as the Compose service file, Dockerfile, or
+     dotenv/config file.
 3. `## 워크로드 간 관계`
    - Explain dependencies between workloads using natural language and compact
      arrows where helpful, for example `frontend -> backend`,
      `backend -> db`, `worker -> broker/cache/db`, or
      `prestart job -> db`.
-   - Use only relationships present in component runtime dependencies, Compose
-     service dependency/startup facts, configuration evidence, ports, or
+   - Use only explicit relationships or strong repository-derived relationship
+     candidates. Allowed sources are component runtime dependencies, Compose
+     service dependency/startup facts, configuration references, ports, and
      deterministic migration answers.
+   - When using Compose `depends_on`, phrase it as startup-order evidence, not
+     as a final Kubernetes dependency mechanism.
+   - Do not infer relationships from generic application architecture patterns
+     alone.
    - If relationships are not detected, say that the repository facts do not
      expose enough relationship evidence.
 4. `## Kubernetes 이관 관점`
    - Explain how the workloads would likely be split into Kubernetes objects:
-     Deployment, StatefulSet, Job, Service, PVC, ConfigMap, and Secret
-     candidates.
-   - Keep all object mappings as candidates.
+     workload controller candidates first, then companion object candidates such
+     as Service, PVC, ConfigMap, Secret, Ingress, or Gateway.
+   - Keep all object mappings as candidates, and do not describe Services,
+     PVCs, ConfigMaps, Secrets, Ingresses, or Gateways as workloads.
+   - Use conservative controller wording: Deployment candidate for long-running
+     stateless app/server/worker processes; StatefulSet or external managed
+     service candidate for stateful services with persistent storage or stable
+     identity evidence; Job candidate for one-off migration/seed/prestart work;
+     init container candidate only when the evidence points to app-Pod startup
+     gating.
+   - Do not give a Service candidate to a background worker solely because it is
+     a workload. Require inbound port or consumer evidence.
+   - Keep Service type, IngressClass, host, TLS, Gateway policy, PVC size, access
+     mode, and StorageClass unresolved unless declared by repository facts.
    - Include image/runtime risks and analyzer warning codes in context, with why
      they matter for migration.
 5. `## 확인이 필요한 부분`
@@ -91,14 +147,24 @@ sections:
 - The seven migration question statuses must still be represented, but they can
   be summarized in context rather than listed as numbered questions.
 - Do not include raw `Evidence:` lines by default.
-- Include compact file references only when they materially help a developer
-  verify a workload fact.
+- Include compact primary file references only when they materially help a
+  developer verify a workload fact.
 - Do not invent Kubernetes values: replica count, CPU/memory, PVC size,
   StorageClass, IngressClass, HPA, PDB, DB HA, backup policy, hosts, TLS, or
   Secret values.
 - Do not turn `not_detected`, `partial`, or `unresolved` into positive claims.
-- Do not claim "no external dependency" without the qualifier that no dependency
-  was detected from scanned repository facts.
+- Do not claim "no external dependency" without making it a
+  Scanned-Facts-Only Claim: no dependency was detected from the repository facts
+  the analyzer scanned.
+- Do not treat `depends_on`, Dockerfile `EXPOSE`, Compose `ports`, Dockerfile or
+  Compose health checks, or declared volumes as final Kubernetes design
+  decisions. Treat them as evidence for candidates that still need review.
+- Do not translate one generic health check into final startup, readiness, and
+  liveness probes.
+- Do not infer an application PVC from datasource or database evidence alone;
+  report application-local mounts separately from database/service persistence.
+- Surface ignored Compose overrides, sample/documented deployment evidence, and
+  unknown/inactive Compose profiles as coverage caveats when present.
 
 ## Testing
 
@@ -108,9 +174,8 @@ Update `tests/test_llm_tool_call_demo.py` so the prompt-contract test verifies:
 - The instruction includes the five required section names.
 - The instruction explicitly makes the seven migration questions an internal
   coverage check rather than the final answer structure.
-- The instruction requires workload details: role, language/runtime, framework,
-  build tool, build method, build/run commands, Dockerfile/base image, ports,
-  persistence, and Kubernetes candidate.
+- The instruction requires workload details: role, language/runtime/framework,
+  Image Build Profile, Runtime Deployment Profile, and Kubernetes candidate.
 - The instruction requires workload relationship explanation.
 - The instruction preserves warning codes, image/runtime risks, unresolved
   inputs, and no-invention rules.

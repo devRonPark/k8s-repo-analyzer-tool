@@ -59,9 +59,25 @@ with these workload-centered assertions:
     assert "## Kubernetes 이관 관점" in final_instruction["content"]
     assert "## 확인이 필요한 부분" in final_instruction["content"]
     assert "The seven migration questions are coverage checks, not the final answer structure" in final_instruction["content"]
-    assert "role, programming language, runtime/framework, build tool, build method" in final_instruction["content"]
-    assert "build command, run command, Dockerfile/base image, exposed container ports" in final_instruction["content"]
-    assert "persistent volumes, and Kubernetes workload candidate" in final_instruction["content"]
+    assert "Image Build Profile" in final_instruction["content"]
+    assert "Runtime Deployment Profile" in final_instruction["content"]
+    assert "build tool, image build path or context, Dockerfile/buildpack/Jib/prebuilt-image source" in final_instruction["content"]
+    assert "start command and arguments, exposed or listening container ports" in final_instruction["content"]
+    assert "configuration candidates, Secret candidates, persistent volumes or mounts" in final_instruction["content"]
+    assert "workload controller candidates first, then companion object candidates" in final_instruction["content"]
+    assert "do not describe Services, PVCs, ConfigMaps, Secrets, Ingresses, or Gateways as workloads" in final_instruction["content"]
+    assert "Service type, IngressClass, host, TLS, Gateway policy" in final_instruction["content"]
+    assert "Deployment candidate for long-running stateless" in final_instruction["content"]
+    assert "StatefulSet or external managed service candidate" in final_instruction["content"]
+    assert "Job candidate for one-off migration/seed/prestart work" in final_instruction["content"]
+    assert "init container candidate only when" in final_instruction["content"]
+    assert "Do not give a Service candidate to a background worker" in final_instruction["content"]
+    assert "Compose depends_on" in final_instruction["content"]
+    assert "Dockerfile EXPOSE, Compose ports" in final_instruction["content"]
+    assert "Probe Candidates" in final_instruction["content"]
+    assert "Do not translate one generic health check into final startup, readiness, and liveness probes" in final_instruction["content"]
+    assert "Do not infer an application PVC from datasource or database evidence alone" in final_instruction["content"]
+    assert "Compose profiles" in final_instruction["content"]
     assert "Explain workload relationships" in final_instruction["content"]
     assert "Do not claim no external dependency without saying no dependency was detected from scanned repository facts" in final_instruction["content"]
     assert "source material for the workload-centered rewrite" in final_instruction["content"]
@@ -110,11 +126,23 @@ In `scripts/llm_tool_call_demo.py`, replace the instruction list inside `_build_
             "The seven migration questions are coverage checks, not the final answer structure; represent their statuses in context without listing them as the main numbered report.",
             "Allowed final-answer content is limited to: migration question answers and statuses, component/workload/port/dependency/config/storage/startup facts from the deterministic brief, analyzer warning codes and messages, image/runtime risk subjects and effects, and unresolved operational inputs with needed inputs.",
             "For ## 애플리케이션 구성 개요, explain the application as a set of runtime workloads in natural Korean, mentioning roles such as API, frontend, database, cache, admin tool, worker, or init/prestart job only when present in analyzer facts.",
-            "For ## 워크로드 구성, describe each detected workload in a short paragraph or compact bullet group, including when present: role, programming language, runtime/framework, build tool, build method, build command, run command, Dockerfile/base image, exposed container ports, published ports, persistent volumes, and Kubernetes workload candidate.",
+            "For ## 워크로드 구성, describe each detected workload in a short paragraph or compact bullet group.",
+            "For each workload, include the role and language/runtime/framework when present in analyzer facts.",
+            "For each workload, include the Image Build Profile when present: build tool, image build path or context, Dockerfile/buildpack/Jib/prebuilt-image source, build command, produced artifact, and base or builder image.",
+            "For each workload, include the Runtime Deployment Profile when present: image reference, start command and arguments, exposed or listening container ports, published or Service-facing ports, Exposure Candidates, configuration candidates, Secret candidates, persistent volumes or mounts, Probe Candidates, lifecycle or init behavior, and Kubernetes workload controller candidate.",
             "For missing workload fields, say the value was not detected from repository facts instead of inventing it.",
             "Explain workload relationships in ## 워크로드 간 관계 using natural language and compact arrows when helpful, for example frontend -> backend, backend -> db, worker -> broker/cache/db, or prestart job -> db; use only relationships present in component runtime dependencies, Compose service dependency/startup facts, configuration evidence, ports, or deterministic migration answers.",
+            "When using Compose depends_on, phrase it as startup-order evidence, not as a final Kubernetes dependency mechanism.",
             "If workload relationships are not detected, say repository facts do not expose enough relationship evidence.",
-            "For ## Kubernetes 이관 관점, explain how workloads would likely split into Kubernetes object candidates such as Deployment, StatefulSet, Job, Service, PVC, ConfigMap, and Secret; Keep all Kubernetes object mappings as candidates.",
+            "For ## Kubernetes 이관 관점, explain Kubernetes object candidates as workload controller candidates first, then companion object candidates such as Service, PVC, ConfigMap, Secret, Ingress, or Gateway.",
+            "Keep all Kubernetes object mappings as candidates, and do not describe Services, PVCs, ConfigMaps, Secrets, Ingresses, or Gateways as workloads.",
+            "Use conservative controller wording: Deployment candidate for long-running stateless app/server/worker processes; StatefulSet or external managed service candidate for stateful services with persistent storage or stable identity evidence; Job candidate for one-off migration/seed/prestart work; init container candidate only when the evidence points to app-Pod startup gating.",
+            "Do not give a Service candidate to a background worker solely because it is a workload; require inbound port or consumer evidence.",
+            "Keep Service type, IngressClass, host, TLS, Gateway policy, PVC size, access mode, and StorageClass unresolved unless declared by repository facts.",
+            "Treat Dockerfile EXPOSE, Compose ports, Dockerfile or Compose health checks, and declared volumes as evidence for candidates, not final Kubernetes design decisions.",
+            "Do not translate one generic health check into final startup, readiness, and liveness probes.",
+            "Do not infer an application PVC from datasource or database evidence alone; report application-local mounts separately from database/service persistence.",
+            "Surface ignored Compose overrides, sample/documented deployment evidence, and unknown/inactive Compose profiles as coverage caveats when present.",
             "Include every analyzer warning code and every image/runtime risk subject in context, with why it matters for Kubernetes migration.",
             "For ## 확인이 필요한 부분, list unresolved operational inputs concretely and include important coverage caveats such as ignored compose override files or missing deployment topology files.",
             "Use not_detected, partial, and unresolved as explicit status labels and explain them as missing evidence or open decisions.",
