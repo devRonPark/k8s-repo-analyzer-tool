@@ -58,3 +58,15 @@ The task brief expected the backend build context to be `./backend`, but the che
 
 - Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (5 tests).
 - Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (248 tests).
+
+## Published-Port Evidence Fix
+
+- Emit a component-scoped `networking` finding for each valid published Compose host port while the original `Located` port entry is available.
+- Published-port exposure candidates now use the matching finding evidence, retaining exact Compose selectors such as `$.services.api.ports[0]` instead of broad service mapping evidence.
+- Kept published host-port and container-port candidate separation and left relationships unchanged for Task 3.
+- Regression coverage verifies evidence exists for every published candidate and points to each specific Compose `ports[...]` entry.
+
+## Published-Port Evidence Test Results
+
+- Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (5 tests).
+- Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (250 tests).

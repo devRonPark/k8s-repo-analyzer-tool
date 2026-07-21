@@ -169,3 +169,12 @@ def test_profile_separates_published_port_from_container_port(tmp_path):
         ("published_port", 3001),
         ("published_port", 8082),
     ]
+    published_candidates = [
+        candidate for candidate in candidates if candidate.source == "published_port"
+    ]
+    assert [candidate.evidence[0].selector for candidate in published_candidates] == [
+        "$.services.api.ports[0]",
+        "$.services.api.ports[1]",
+        "$.services.api.ports[2]",
+    ]
+    assert all(candidate.evidence for candidate in published_candidates)

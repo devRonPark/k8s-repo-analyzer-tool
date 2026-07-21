@@ -543,19 +543,35 @@ def _exposure_candidates(
                 evidence=evidence,
             )
         )
+    published_findings = [
+        finding
+        for finding in networking
+        if finding.subject == f"{component.name}.published_port"
+    ]
+    published_finding_index = 0
     for published in component.published_ports:
         port = _published_port_number(published)
         if port is None:
             continue
+        finding = next(
+            (
+                candidate
+                for candidate in published_findings[published_finding_index:]
+                if candidate.value == port
+            ),
+            None,
+        )
+        published_finding_index += 1
+        evidence = list(finding.evidence) if finding else list(mapping_evidence)
         candidates.append(
             ExposureCandidate(
                 port=port,
                 source="published_port",
-                evidence_type="compose_port",
-                confidence="explicit",
+                evidence_type=_evidence_type(evidence, "compose_port"),
+                confidence=finding.confidence if finding else "explicit",
                 service_candidate=service_candidate,
                 description=f"{component.name} published compose port candidate",
-                evidence=list(mapping_evidence),
+                evidence=evidence,
             )
         )
     return candidates
@@ -1180,6 +1196,21 @@ def _analyze_service(
                 confidence=port_conf,
                 kubernetes_effect=f"{service.name} Service targetPort candidate",
                 evidence=port_ev,
+            )
+        )
+    for published in service.ports:
+        published_port = _published_port_number(str(published.value))
+        if published_port is None:
+            continue
+        result.networking.append(
+            Finding(
+                subject=f"{service.name}.published_port",
+                value=published_port,
+                confidence="explicit",
+                kubernetes_effect=(
+                    f"{service.name} published host port evidence from Compose ports entry"
+                ),
+                evidence=[_ev(published, compose_path, "ports.published")],
             )
         )
     component.published_ports = [str(p.value) for p in service.ports]
