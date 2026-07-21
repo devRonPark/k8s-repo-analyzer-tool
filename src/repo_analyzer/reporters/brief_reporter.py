@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..models import AnalysisResult, AnswerBasis
+from ..models import AnalysisResult, AnswerBasis, WorkloadProfile
 
 _MAX_EVIDENCE_ITEMS = 6
 
@@ -31,6 +31,9 @@ def to_brief(result: AnalysisResult) -> str:
     out(f"- Components: {len(result.components)}")
     out(f"- Open inputs: {len(result.unresolved_operational_inputs)}")
     out("")
+
+    if result.workload_profiles:
+        _workload_profiles_section(out, result.workload_profiles)
 
     out("## Seven migration questions")
     out("")
@@ -60,6 +63,56 @@ def to_brief(result: AnalysisResult) -> str:
     out("")
 
     return "\n".join(lines) + "\n"
+
+
+def _workload_profiles_section(out, profiles: list[WorkloadProfile]) -> None:
+    out("## Workload profiles")
+    out("")
+    for profile in profiles:
+        image = profile.image_build_profile
+        runtime = profile.runtime_deployment_profile
+        out(f"### {profile.name}")
+        out("")
+
+        image_details = _details(
+            [
+                ("tool", image.build_tool),
+                ("context", image.build_context),
+                ("Dockerfile", image.dockerfile),
+                ("image", image.image),
+                ("source", image.image_source),
+            ]
+        )
+        out(f"- Image build: {image_details or 'no profile facts detected'}")
+
+        runtime_details = _details(
+            [
+                ("runtime", runtime.runtime),
+                ("command", " ".join(runtime.command) if runtime.command else None),
+                ("ports", ", ".join(str(port) for port in runtime.container_ports) or None),
+            ]
+        )
+        out(f"- Runtime deployment: {runtime_details or 'no profile facts detected'}")
+
+        _candidate_summary(out, "Workload controller candidates", runtime.kubernetes_candidates, "workload_controller")
+        _candidate_summary(out, "Companion object candidates", runtime.kubernetes_candidates, "companion_object")
+
+        if runtime.relationships:
+            out("- Relationships: " + "; ".join(
+                f"{relationship.source} -> {relationship.target}"
+                for relationship in runtime.relationships
+            ))
+        out("")
+
+
+def _details(items: list[tuple[str, str | None]]) -> str:
+    return "; ".join(f"{label}={value}" for label, value in items if value is not None)
+
+
+def _candidate_summary(out, label: str, candidates, role: str) -> None:
+    names = [candidate.kind for candidate in candidates if candidate.candidate_role == role]
+    if names:
+        out(f"- {label}: {', '.join(names)}")
 
 
 def _format_basis(basis_items: list[AnswerBasis]) -> str:
