@@ -150,12 +150,23 @@ def _workload_profile_block(out, profile: WorkloadProfile) -> None:
 
     out("#### Unresolved decisions")
     out("")
-    decisions = list(dict.fromkeys([
+    decisions = [
         *image.unresolved,
         *image.open_decisions,
         *runtime.unresolved,
         *runtime.open_decisions,
-    ]))
+        *(
+            decision
+            for candidate in (
+                *runtime.exposure_candidates,
+                *runtime.probe_candidates,
+                *runtime.kubernetes_candidates,
+            )
+            for decision in getattr(candidate, "open_decisions", ())
+        ),
+        *(decision for relationship in runtime.relationships for decision in relationship.open_decisions),
+    ]
+    decisions = list(dict.fromkeys(decisions))
     if decisions:
         for decision in decisions:
             out(f"- {decision}")
