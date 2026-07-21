@@ -412,7 +412,105 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
 
 def _compact_workload_profiles(analysis: dict[str, Any]) -> str:
     profiles = analysis.get("workload_profiles") or []
-    return json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
+    compact_profiles = []
+    for profile in profiles:
+        image = profile.get("image_build_profile") or {}
+        runtime = profile.get("runtime_deployment_profile") or {}
+        compact_profile = {"name": profile.get("name")}
+
+        compact_image = _project_nonempty(
+            image,
+            (
+                "build_tool",
+                "build_command",
+                "build_context",
+                "dockerfile",
+                "image",
+                "base_image",
+                "image_source",
+                "unresolved",
+                "open_decisions",
+            ),
+        )
+        if compact_image:
+            compact_profile["image_build_profile"] = compact_image
+
+        compact_runtime = _project_nonempty(
+            runtime,
+            (
+                "language",
+                "runtime",
+                "frameworks",
+                "application_server",
+                "command",
+                "workers",
+                "container_ports",
+                "published_ports",
+                "context_path",
+                "environment",
+                "configmap_candidates",
+                "secret_candidates",
+                "volumes",
+                "unresolved",
+                "open_decisions",
+            ),
+        )
+        projected_children = (
+            (
+                "kubernetes_candidates",
+                (
+                    "kind",
+                    "candidate_role",
+                    "confidence",
+                    "rationale",
+                    "open_decisions",
+                ),
+            ),
+            (
+                "relationships",
+                (
+                    "source",
+                    "target",
+                    "relationship_type",
+                    "description",
+                    "confidence",
+                    "open_decisions",
+                ),
+            ),
+            (
+                "probe_candidates",
+                (
+                    "probe_type",
+                    "value",
+                    "confidence",
+                    "evidence_type",
+                    "open_decisions",
+                ),
+            ),
+        )
+        for field, child_fields in projected_children:
+            children = [
+                projected
+                for child in runtime.get(field) or []
+                if (projected := _project_nonempty(child, child_fields))
+            ]
+            if children:
+                compact_runtime[field] = children
+        if compact_runtime:
+            compact_profile["runtime_deployment_profile"] = compact_runtime
+
+        compact_profiles.append(compact_profile)
+    return json.dumps(compact_profiles, ensure_ascii=False, separators=(",", ":"))
+
+
+def _project_nonempty(source: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    projected = {}
+    for field in fields:
+        value = source.get(field)
+        if value is None or value == "" or value == [] or value == {}:
+            continue
+        projected[field] = value
+    return projected
 
 
 def _deterministic_brief(analysis: dict[str, Any]) -> str:

@@ -98,3 +98,22 @@ def test_markdown_reporter_scopes_missing_relationships_to_scanned_repository_fa
     )
     assert "_No companion object candidates detected in scanned repository facts._" in markdown
     assert "_No workload relationships detected in scanned repository facts._" in markdown
+
+
+def test_markdown_reporter_omits_service_for_traefik_host_without_port(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: example/api:latest\n"
+        "    labels:\n"
+        '      - "traefik.http.routers.api.rule=Host(`api.example.com`)"\n'
+    )
+
+    result = analyze_repository(str(tmp_path))
+    markdown = to_markdown(result)
+
+    assert result.workload_mappings[0].kubernetes_kind == "Deployment"
+    assert "Deployment candidate" in markdown
+    assert "Ingress candidate" in markdown
+    assert "ClusterIP Service" not in markdown
+    assert "Service candidate" not in markdown

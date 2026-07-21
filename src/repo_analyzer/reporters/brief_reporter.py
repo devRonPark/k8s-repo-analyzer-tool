@@ -163,7 +163,17 @@ def _question_answer(question_id: str, legacy_answer: str, profiles: list[Worklo
         summaries = []
         relationships = []
         for profile in profiles:
-            candidates = profile.runtime_deployment_profile.kubernetes_candidates
+            runtime = profile.runtime_deployment_profile
+            candidates = runtime.kubernetes_candidates
+            if runtime.container_ports:
+                summaries.append(
+                    f"{profile.name} targetPort "
+                    f"{', '.join(str(port) for port in runtime.container_ports)}"
+                )
+            if runtime.published_ports:
+                summaries.append(
+                    f"{profile.name} published ports: {', '.join(runtime.published_ports)}"
+                )
             controllers = [
                 candidate.kind
                 for candidate in candidates
@@ -185,11 +195,13 @@ def _question_answer(question_id: str, legacy_answer: str, profiles: list[Worklo
                 )
             relationships.extend(
                 f"{relationship.source} -> {relationship.target}"
-                for relationship in profile.runtime_deployment_profile.relationships
+                for relationship in runtime.relationships
             )
         if relationships:
             summaries.append(f"Workload relationships: {'; '.join(dict.fromkeys(relationships))}")
-        return _enriched_answer(legacy_answer, summaries)
+        if not summaries:
+            return "No port or Kubernetes object candidate was detected in scanned repository facts."
+        return "\n".join(f"- {summary}" for summary in summaries)
 
     if question_id == "repository_unknowns":
         decisions = list(

@@ -263,6 +263,18 @@ def _component_block(out, comp: Component) -> None:
 def _workloads_section(out, result: AnalysisResult) -> None:
     out("## 2. Kubernetes workload mappings")
     out("")
+    if result.workload_profiles:
+        out("| Component | Kubernetes candidates | Rationale |")
+        out("| --- | --- | --- |")
+        for profile in result.workload_profiles:
+            candidates = profile.runtime_deployment_profile.kubernetes_candidates
+            kinds = " + ".join(dict.fromkeys(candidate.kind for candidate in candidates)) or "—"
+            rationales = "; ".join(
+                f"{candidate.kind}: {candidate.rationale}" for candidate in candidates
+            ) or "No candidate derived from scanned repository facts."
+            out(f"| {profile.name} | {kinds} | {rationales} |")
+        out("")
+        return
     if not result.workload_mappings:
         out("_No workloads derived._")
         out("")

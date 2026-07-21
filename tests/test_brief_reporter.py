@@ -100,3 +100,23 @@ def test_brief_reporter_scopes_missing_profile_facts_to_scanned_repository_facts
     brief = to_brief(result)
 
     assert "no profile facts detected in scanned repository facts" in brief
+
+
+def test_brief_reporter_omits_service_for_traefik_host_without_port(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: example/api:latest\n"
+        "    labels:\n"
+        '      - "traefik.http.routers.api.rule=Host(`api.example.com`)"\n'
+    )
+
+    result = analyze_repository(str(tmp_path))
+    brief = to_brief(result)
+    ports_and_services = _question_section(brief, result, "ports_and_services")
+
+    assert result.workload_mappings[0].kubernetes_kind == "Deployment"
+    assert "Workload controller candidates: Deployment" in ports_and_services
+    assert "Companion object candidates: Ingress" in ports_and_services
+    assert "ClusterIP Service" not in ports_and_services
+    assert "Companion object candidates: Service" not in ports_and_services

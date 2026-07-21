@@ -568,7 +568,10 @@ def _workload_relationships(
 
 def _component_findings(component: Component, result: AnalysisResult) -> dict[str, list[Finding]]:
     prefix = f"{component.name}."
-    single_component = len(result.components) == 1
+    generic_application = _generic_application_component(result)
+    owns_generic_application_findings = (
+        generic_application is not None and generic_application.name == component.name
+    )
 
     def is_component_health_finding(finding: Finding) -> bool:
         return finding.subject in {
@@ -581,19 +584,25 @@ def _component_findings(component: Component, result: AnalysisResult) -> dict[st
 
     return {
         # Compose services share the compose file, so its path cannot establish
-        # component ownership. Only a single-component result can safely own
-        # unqualified application and service findings.
+        # component ownership. Unqualified application findings belong only to
+        # the unique component with application build/runtime evidence.
         "networking": [
             finding
             for finding in result.networking
             if finding.subject.startswith(prefix)
-            or (single_component and finding.subject.startswith(("app.", "service.")))
+            or (
+                owns_generic_application_findings
+                and finding.subject.startswith(("app.", "service."))
+            )
         ],
         "health": [
             finding
             for finding in result.health_checks
             if is_component_health_finding(finding)
-            or (single_component and is_generic_application_health_finding(finding))
+            or (
+                owns_generic_application_findings
+                and is_generic_application_health_finding(finding)
+            )
         ],
         "storage": [finding for finding in result.storage if finding.subject.startswith(prefix)],
         "configuration": [
@@ -623,6 +632,23 @@ def _component_findings(component: Component, result: AnalysisResult) -> dict[st
             )
         ],
     }
+
+
+def _generic_application_component(result: AnalysisResult) -> Component | None:
+    if len(result.components) == 1:
+        return result.components[0]
+
+    application_components = [
+        component
+        for component in result.components
+        if component.language
+        or component.frameworks
+        or component.build_tool
+        or component.build_command
+        or component.build_artifact
+        or component.application_server
+    ]
+    return application_components[0] if len(application_components) == 1 else None
 
 
 def _dockerfile_evidence(component: Component, findings: list[Finding]) -> list[Evidence]:
@@ -1686,6 +1712,7 @@ def _service_workload(
     if service.image is not None:
         image_key = str(service.image.value).split(":", 1)[0].split("/")[-1].lower()
     has_persistent = any("PVC size" == u for u in component.unresolved)
+    has_inbound_port = bool(component.container_ports or component.published_ports)
 
     base_ev = [
         Evidence(
@@ -1698,8 +1725,16 @@ def _service_workload(
     ]
 
     if image_key in _DB_IMAGE_RUNTIMES or has_persistent:
-        kind = "StatefulSet + headless Service (or external managed database)"
-        rationale = "Stateful component with persistent data; not a stateless Deployment."
+        kind = (
+            "StatefulSet + headless Service (or external managed database)"
+            if has_inbound_port
+            else "StatefulSet (or external managed database)"
+        )
+        rationale = (
+            "Stateful component with persistent data; not a stateless Deployment."
+            if has_inbound_port
+            else "Stateful component with persistent data; no inbound port evidence supports a Service."
+        )
         unresolved = ["replica count", "CPU/memory", "PVC size", "StorageClass", "DB HA & backup policy"]
     elif str(service.command.value if service.command else "").find("prestart") != -1 or (
         service.command is not None and "prestart" in " ".join(service.command.value)
@@ -1715,13 +1750,20 @@ def _service_workload(
             "readiness is a process/broker-connection check, not an HTTP probe."
         )
         unresolved = ["replica count", "CPU/memory"]
-    elif image_key == "adminer":
+    elif image_key == "adminer" and has_inbound_port:
         kind = "Deployment + ClusterIP Service (optional admin tool)"
         rationale = "Optional developer/admin UI; deploy only if needed, keep internal."
         unresolved = ["whether to deploy at all", "replica count", "CPU/memory"]
-    elif component.runtime == "Nginx (static assets)":
+    elif component.runtime == "Nginx (static assets)" and has_inbound_port:
         kind = "Deployment + ClusterIP Service (static assets via Nginx)"
         rationale = "Stateless static-asset server; horizontally scalable."
+        unresolved = ["replica count", "CPU/memory"]
+    elif not has_inbound_port:
+        kind = "Deployment"
+        rationale = (
+            "Long-running component candidate, but scanned repository facts contain no inbound "
+            "port evidence for a Service."
+        )
         unresolved = ["replica count", "CPU/memory"]
     else:
         kind = "Deployment + ClusterIP Service"

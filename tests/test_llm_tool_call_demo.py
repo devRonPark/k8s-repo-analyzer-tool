@@ -3,6 +3,8 @@ import json
 import urllib.error
 from pathlib import Path
 
+from repo_analyzer.analyzer import analyze_repository
+
 
 def _load_script():
     path = Path("scripts/llm_tool_call_demo.py")
@@ -11,6 +13,16 @@ def _load_script():
     assert spec is not None and spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _nested_keys(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield key
+            yield from _nested_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _nested_keys(child)
 
 
 def test_converts_existing_tool_schema_to_responses_function_tool():
@@ -880,20 +892,69 @@ def test_final_answer_instruction_prefers_workload_profiles():
     start = instruction.index("\n<workload_profiles>\n") + len("\n<workload_profiles>\n")
     end = instruction.index("\n</workload_profiles>", start)
     serialized_profiles = instruction[start:end].strip()
-    assert serialized_profiles == json.dumps(
-        payload["analysis"]["workload_profiles"],
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
     assert serialized_profiles != "[]"
-    assert json.loads(serialized_profiles) == payload["analysis"]["workload_profiles"]
+    compact_profiles = json.loads(serialized_profiles)
+    assert compact_profiles != payload["analysis"]["workload_profiles"]
+    assert "source_files" not in compact_profiles[0]
+    assert "evidence" not in compact_profiles[0]["image_build_profile"]
+    assert "evidence" not in compact_profiles[0]["runtime_deployment_profile"]
     assert 'name":"backend"' in serialized_profiles
     assert 'dockerfile":"backend/Dockerfile"' in serialized_profiles
     assert 'runtime":"FastAPI"' in serialized_profiles
     assert '"kind":"Deployment"' in serialized_profiles
     assert '"candidate_role":"workload_controller"' in serialized_profiles
-    assert '"evidence_type":"component_source"' in serialized_profiles
+    assert compact_profiles[0]["runtime_deployment_profile"][
+        "kubernetes_candidates"
+    ][0] == {
+        "kind": "Deployment",
+        "candidate_role": "workload_controller",
+        "confidence": "derived",
+        "rationale": "stateless HTTP application",
+    }
     assert "structured workload profile facts from <workload_profiles>" in instruction
     assert "Scope every negative claim to scanned repository facts" in instruction
     assert "infer" not in instruction.lower()
     assert "structured workload profiles" in instruction
+
+
+def test_compact_workload_profiles_are_small_and_keep_answer_relevant_fields(golden_repo):
+    module = _load_script()
+    analysis = analyze_repository(str(golden_repo)).model_dump(mode="json")
+    raw_profiles = json.dumps(
+        analysis["workload_profiles"], ensure_ascii=False, separators=(",", ":")
+    )
+
+    serialized_profiles = module._compact_workload_profiles(analysis)
+    compact_profiles = json.loads(serialized_profiles)
+    backend = next(profile for profile in compact_profiles if profile["name"] == "backend")
+    runtime = backend["runtime_deployment_profile"]
+
+    assert len(serialized_profiles) < 12_000
+    assert len(serialized_profiles) < len(raw_profiles) * 0.4
+    assert backend["image_build_profile"]["dockerfile"] == "backend/Dockerfile"
+    assert runtime["runtime"] == "FastAPI"
+    assert runtime["command"][:2] == ["fastapi", "run"]
+    assert runtime["container_ports"] == [8000]
+    assert runtime["environment"]
+    assert any(
+        candidate["kind"] == "Service"
+        and candidate["candidate_role"] == "companion_object"
+        and candidate["rationale"]
+        for candidate in runtime["kubernetes_candidates"]
+    )
+    assert any(
+        relationship["source"] == "backend"
+        and relationship["target"] == "db"
+        and relationship["relationship_type"] == "startup_order"
+        for relationship in runtime["relationships"]
+    )
+    assert any(
+        probe["probe_type"] == "readiness"
+        and probe["evidence_type"] == "compose_healthcheck"
+        for probe in runtime["probe_candidates"]
+    )
+    assert runtime["unresolved"]
+    frontend = next(profile for profile in compact_profiles if profile["name"] == "frontend")
+    assert frontend["runtime_deployment_profile"]["open_decisions"]
+    assert "evidence" not in set(_nested_keys(compact_profiles))
+    assert ":null" not in serialized_profiles
