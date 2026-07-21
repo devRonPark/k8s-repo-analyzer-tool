@@ -329,7 +329,7 @@ def test_full_stack_fastapi_profiles_group_build_and_runtime(golden_repo):
     ]
 
     backend = _profile(result, "backend")
-    assert backend.image_build_profile.build_context == "./backend"
+    assert backend.image_build_profile.build_context == "."
     assert backend.image_build_profile.dockerfile == "backend/Dockerfile"
     assert backend.runtime_deployment_profile.runtime == "FastAPI"
     assert backend.runtime_deployment_profile.command[:2] == ["fastapi", "run"]
