@@ -12,6 +12,27 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Confidence = Literal["explicit", "derived", "unresolved"]
+RelationshipType = Literal[
+    "startup_order",
+    "runtime_dependency",
+    "configuration_reference",
+    "network_consumer",
+    "build_time_binding",
+]
+KubernetesObjectKind = Literal[
+    "Deployment",
+    "StatefulSet",
+    "Job",
+    "CronJob",
+    "DaemonSet",
+    "init_container",
+    "Service",
+    "PVC",
+    "ConfigMap",
+    "Secret",
+    "Ingress",
+    "Gateway",
+]
 QuestionStatus = Literal["answered", "partial", "unresolved", "not_detected"]
 CoverageStatus = Literal["present", "missing", "ignored", "error"]
 CoverageRole = Literal[
@@ -144,6 +165,87 @@ class WorkloadMapping(_Model):
     unresolved: list[str] = Field(default_factory=list)
 
 
+class WorkloadRelationship(_Model):
+    source: str
+    target: str
+    relationship_type: RelationshipType
+    description: str
+    confidence: Confidence
+    evidence: list[Evidence] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
+
+
+class ImageBuildProfile(_Model):
+    build_tool: str | None = None
+    build_command: str | None = None
+    build_context: str | None = None
+    dockerfile: str | None = None
+    build_args: list[str] = Field(default_factory=list)
+    build_artifact: str | None = None
+    packaging: str | None = None
+    image: str | None = None
+    base_image: str | None = None
+    builder_image: str | None = None
+    image_source: str | None = None
+    evidence: list[Evidence] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
+
+
+class ExposureCandidate(_Model):
+    port: int
+    source: str
+    confidence: Confidence
+    service_candidate: bool
+    description: str
+    evidence: list[Evidence] = Field(default_factory=list)
+
+
+class ProbeCandidateProfile(_Model):
+    probe_type: str
+    value: str
+    confidence: Confidence
+    evidence: list[Evidence] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
+
+
+class KubernetesObjectCandidate(_Model):
+    kind: KubernetesObjectKind
+    name: str | None = None
+    candidate_role: Literal["workload_controller", "companion_object"]
+    confidence: Confidence
+    rationale: str
+    evidence: list[Evidence] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
+
+
+class RuntimeDeploymentProfile(_Model):
+    runtime: str | None = None
+    language: str | None = None
+    frameworks: list[str] = Field(default_factory=list)
+    application_server: str | None = None
+    command: list[str] | None = None
+    workers: int | None = None
+    container_ports: list[int] = Field(default_factory=list)
+    published_ports: list[str] = Field(default_factory=list)
+    context_path: str | None = None
+    environment: list[str] = Field(default_factory=list)
+    configmap_candidates: list[str] = Field(default_factory=list)
+    secret_candidates: list[str] = Field(default_factory=list)
+    volumes: list[str] = Field(default_factory=list)
+    probe_candidates: list[ProbeCandidateProfile] = Field(default_factory=list)
+    kubernetes_candidates: list[KubernetesObjectCandidate] = Field(default_factory=list)
+    relationships: list[WorkloadRelationship] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
+
+
+class WorkloadProfile(_Model):
+    name: str
+    role: str | None = None
+    source_files: list[str] = Field(default_factory=list)
+    image_build_profile: ImageBuildProfile
+    runtime_deployment_profile: RuntimeDeploymentProfile
+
+
 class RepositoryMetadata(_Model):
     name: str
     profile: str
@@ -160,6 +262,7 @@ class AnalysisResult(_Model):
     source_coverage: list[SourceCoverage] = Field(default_factory=list)
     migration_questions: list[MigrationQuestionAnswer] = Field(default_factory=list)
     components: list[Component] = Field(default_factory=list)
+    workload_profiles: list[WorkloadProfile] = Field(default_factory=list)
     workload_mappings: list[WorkloadMapping] = Field(default_factory=list)
     networking: list[Finding] = Field(default_factory=list)
     configuration: list[Finding] = Field(default_factory=list)
