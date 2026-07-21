@@ -49,3 +49,56 @@ def test_full_stack_fastapi_profiles_group_build_and_runtime(golden_repo):
         candidate.kind == "Service"
         for candidate in prestart.runtime_deployment_profile.kubernetes_candidates
     )
+
+
+def test_full_stack_fastapi_profiles_scope_compose_findings_to_their_service(golden_repo):
+    result = analyze_repository(str(golden_repo), git_ref="4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8")
+
+    profiles = {profile.name: profile for profile in result.workload_profiles}
+
+    assert {
+        name
+        for name, profile in profiles.items()
+        if any(
+            candidate.kind == "PVC"
+            for candidate in profile.runtime_deployment_profile.kubernetes_candidates
+        )
+    } == {"db"}
+
+    for name in ("prestart", "frontend"):
+        assert all(
+            "$.services.backend.healthcheck" not in evidence.selector
+            for probe in profiles[name].runtime_deployment_profile.probe_candidates
+            for evidence in probe.evidence
+        )
+
+    expected_ingress_profiles = {"adminer", "backend", "frontend"}
+    assert {
+        name
+        for name, profile in profiles.items()
+        if any(
+            candidate.kind == "Ingress"
+            for candidate in profile.runtime_deployment_profile.kubernetes_candidates
+        )
+    } == expected_ingress_profiles
+    for name in expected_ingress_profiles:
+        ingress = next(
+            candidate
+            for candidate in profiles[name].runtime_deployment_profile.kubernetes_candidates
+            if candidate.kind == "Ingress"
+        )
+        assert all(f"$.services.{name}." in evidence.selector for evidence in ingress.evidence)
+
+    expected_probe_selectors = {
+        "db": {"$.services.db.healthcheck"},
+        "adminer": set(),
+        "prestart": set(),
+        "backend": {"$.services.backend.healthcheck"},
+        "frontend": set(),
+    }
+    for name, expected_selectors in expected_probe_selectors.items():
+        assert {
+            evidence.selector
+            for probe in profiles[name].runtime_deployment_profile.probe_candidates
+            for evidence in probe.evidence
+        } == expected_selectors

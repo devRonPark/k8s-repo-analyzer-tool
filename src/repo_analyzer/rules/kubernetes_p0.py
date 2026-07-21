@@ -448,17 +448,13 @@ def _workload_profile(
 
 def _component_findings(component: Component, result: AnalysisResult) -> dict[str, list[Finding]]:
     prefix = f"{component.name}."
-    source_files = set(component.source_files)
-
-    def belongs_to_component(finding: Finding) -> bool:
-        return finding.subject.startswith(prefix) or any(
-            evidence.path in source_files for evidence in finding.evidence
-        )
 
     return {
-        "networking": [finding for finding in result.networking if belongs_to_component(finding)],
-        "health": [finding for finding in result.health_checks if belongs_to_component(finding)],
-        "storage": [finding for finding in result.storage if belongs_to_component(finding)],
+        # Compose services share the compose file, so its path cannot establish
+        # component ownership. These findings use service-qualified subjects.
+        "networking": [finding for finding in result.networking if finding.subject.startswith(prefix)],
+        "health": [finding for finding in result.health_checks if finding.subject.startswith(prefix)],
+        "storage": [finding for finding in result.storage if finding.subject.startswith(prefix)],
         "configuration": [
             finding
             for finding in result.configuration
