@@ -800,3 +800,83 @@ def test_live_mode_requires_api_key_for_default_openai_endpoint(
 
     assert exit_code == 2
     assert "OPENAI_API_KEY is required for https://api.openai.com/v1" in capsys.readouterr().err
+
+
+def test_final_answer_instruction_prefers_workload_profiles():
+    module = _load_script()
+    payload = {
+        "ok": True,
+        "analysis": {
+            "schema_version": "1.0",
+            "repository": {
+                "name": "repo",
+                "profile": "kubernetes-p0",
+                "git_ref": None,
+                "file_count": 1,
+            },
+            "workload_profiles": [
+                {
+                    "name": "backend",
+                    "source_files": ["compose.yml"],
+                    "image_build_profile": {
+                        "dockerfile": "backend/Dockerfile",
+                        "evidence": [
+                            {
+                                "path": "compose.yml",
+                                "selector": "services.backend.build",
+                                "symbol": "build",
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        ],
+                    },
+                    "runtime_deployment_profile": {
+                        "runtime": "FastAPI",
+                        "container_ports": [8000],
+                        "evidence": [
+                            {
+                                "path": "compose.yml",
+                                "selector": "services.backend",
+                                "symbol": "backend",
+                                "start_line": 1,
+                                "end_line": 1,
+                            }
+                        ],
+                        "kubernetes_candidates": [
+                            {
+                                "kind": "Deployment",
+                                "candidate_role": "workload_controller",
+                                "evidence_type": "component_source",
+                                "confidence": "derived",
+                                "rationale": "stateless HTTP application",
+                            }
+                        ],
+                        "relationships": [],
+                    },
+                }
+            ],
+            "migration_questions": [],
+            "components": [],
+            "workload_mappings": [],
+            "networking": [],
+            "configuration": [],
+            "secrets": [],
+            "storage": [],
+            "runtime_dependencies": [],
+            "startup_order": [],
+            "health_checks": [],
+            "build_time_constraints": [],
+            "container_image": [],
+            "unresolved_operational_inputs": [],
+            "warnings": [],
+            "unsupported_constructs": [],
+            "source_coverage": [],
+            "detected_files": [],
+        },
+    }
+
+    instruction = module._build_final_answer_instruction(payload)
+
+    assert "workload_profiles" in instruction
+    assert "infer" not in instruction.lower()
+    assert "structured workload profiles" in instruction

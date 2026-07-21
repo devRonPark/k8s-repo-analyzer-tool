@@ -365,6 +365,7 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
 
     analysis = payload.get("analysis") or {}
     brief = _deterministic_brief(analysis)
+    workload_profiles = _compact_workload_profiles(analysis)
     warnings = _warning_lines(analysis)
     image_risks = _image_runtime_risk_lines(analysis)
 
@@ -380,6 +381,7 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
             "For ## 경고와 리스크, include every warning code and every image/runtime risk subject, with why it matters for Kubernetes migration.",
             "For ## 추가 결정사항, list unresolved operational inputs concretely; do not collapse them into vague examples.",
             "Use not_detected, partial, and unresolved as explicit status labels and explain them as missing evidence or open decisions.",
+            "Explain the structured workload profiles below: their fields are already grouped by workload, so do not reconstruct or reclassify workloads from scattered facts.",
             "For derived workload mappings, use '후보' or 'candidate' for derived workload mappings and phrase them as migration candidates.",
             "Allowed derived-workload phrasing: '<workload> 후보입니다', '<workload> candidate입니다', or '<workload>로 매핑할 수 있습니다'.",
             "Start each warning/risk bullet with the exact warning code or risk subject, then add a Korean explanation.",
@@ -387,6 +389,10 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
             "The deterministic brief below is source material for rewriting into the required sections.",
             "Include compact source references only when needed; the default final answer should emphasize conclusions, statuses, warnings, risks, and decisions.",
             "Before writing the final answer, silently verify: all migration question statuses are represented, all warning codes are present, all image/runtime risk subjects are present, all final content is inside the allowed scope, and operational values remain open decisions unless provided by the analyzer.",
+            "",
+            "<workload_profiles>",
+            workload_profiles,
+            "</workload_profiles>",
             "",
             "<deterministic_brief>",
             brief.rstrip(),
@@ -401,6 +407,11 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
             "</image_runtime_risks>",
         ]
     )
+
+
+def _compact_workload_profiles(analysis: dict[str, Any]) -> str:
+    profiles = analysis.get("workload_profiles") or []
+    return json.dumps(profiles, ensure_ascii=False, separators=(",", ":"))
 
 
 def _deterministic_brief(analysis: dict[str, Any]) -> str:
