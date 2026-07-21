@@ -448,12 +448,33 @@ def _workload_profile(
 
 def _component_findings(component: Component, result: AnalysisResult) -> dict[str, list[Finding]]:
     prefix = f"{component.name}."
+    single_component = len(result.components) == 1
+
+    def is_component_health_finding(finding: Finding) -> bool:
+        return finding.subject in {
+            f"{component.name}.health_path",
+            f"{component.name}.health_exec",
+        }
+
+    def is_generic_application_health_finding(finding: Finding) -> bool:
+        return finding.subject in {"health.liveness_probe", "health.readiness_probe"}
 
     return {
         # Compose services share the compose file, so its path cannot establish
-        # component ownership. These findings use service-qualified subjects.
-        "networking": [finding for finding in result.networking if finding.subject.startswith(prefix)],
-        "health": [finding for finding in result.health_checks if finding.subject.startswith(prefix)],
+        # component ownership. Only a single-component result can safely own
+        # unqualified application and service findings.
+        "networking": [
+            finding
+            for finding in result.networking
+            if finding.subject.startswith(prefix)
+            or (single_component and finding.subject.startswith(("app.", "service.")))
+        ],
+        "health": [
+            finding
+            for finding in result.health_checks
+            if is_component_health_finding(finding)
+            or (single_component and is_generic_application_health_finding(finding))
+        ],
         "storage": [finding for finding in result.storage if finding.subject.startswith(prefix)],
         "configuration": [
             finding
@@ -497,7 +518,18 @@ def _exposure_candidates(
     service_candidate = _service_candidate_allowed(component)
     for port in component.container_ports:
         finding = next(
-            (f for f in networking if f.subject.endswith("container_port") and f.value == port), None
+            (
+                finding
+                for subject in (
+                    f"{component.name}.container_port",
+                    "app.server_port",
+                    "app.default_port",
+                    "service.target_port",
+                )
+                for finding in networking
+                if finding.subject == subject and finding.value == port
+            ),
+            None,
         )
         evidence = list(finding.evidence) if finding else list(mapping_evidence)
         candidates.append(

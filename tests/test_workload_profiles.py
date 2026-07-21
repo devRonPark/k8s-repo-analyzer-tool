@@ -102,3 +102,40 @@ def test_full_stack_fastapi_profiles_scope_compose_findings_to_their_service(gol
             for probe in profiles[name].runtime_deployment_profile.probe_candidates
             for evidence in probe.evidence
         } == expected_selectors
+
+
+def test_single_spring_boot_profile_uses_generic_port_and_probe_facts(tmp_path):
+    (tmp_path / "build.gradle").write_text(
+        "plugins {\n"
+        "  id 'java'\n"
+        "  id 'org.springframework.boot' version '3.4.1'\n"
+        "}\n"
+        "dependencies {\n"
+        "  implementation 'org.springframework.boot:spring-boot-starter-web'\n"
+        "  implementation 'org.springframework.boot:spring-boot-starter-actuator'\n"
+        "}\n"
+    )
+    (tmp_path / "settings.gradle").write_text("rootProject.name = 'orders-service'\n")
+    resources = tmp_path / "src" / "main" / "resources"
+    resources.mkdir(parents=True)
+    (resources / "application.properties").write_text(
+        "management.endpoints.web.exposure.include=health\n"
+    )
+
+    result = analyze_repository(str(tmp_path))
+
+    assert [component.name for component in result.components] == ["orders-service"]
+    profile = _profile(result, "orders-service")
+    runtime = profile.runtime_deployment_profile
+
+    exposure = next(candidate for candidate in runtime.exposure_candidates if candidate.port == 8080)
+    port_fact = next(finding for finding in result.networking if finding.subject == "app.default_port")
+    assert exposure.evidence == port_fact.evidence
+    assert {candidate.probe_type for candidate in runtime.probe_candidates} == {
+        "liveness",
+        "readiness",
+    }
+    assert {candidate.value for candidate in runtime.probe_candidates} == {
+        "/actuator/health/liveness",
+        "/actuator/health/readiness",
+    }

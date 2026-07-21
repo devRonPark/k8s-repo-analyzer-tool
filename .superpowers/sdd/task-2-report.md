@@ -34,3 +34,16 @@ The task brief expected the backend build context to be `./backend`, but the che
 
 - Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (2 tests).
 - Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (247 tests).
+
+## Re-review Fixes
+
+- Restored generic `app.*` and `service.*` networking facts only when analysis produces exactly one component; multi-component profiles continue to use component-qualified ownership and never use shared Compose paths.
+- Restored generic Spring liveness/readiness findings only for a single component, while limiting health-derived probe candidates to generic liveness/readiness or component-qualified health path/exec findings.
+- Matched port exposure provenance to the component-specific or generic application/service port fact, preferring explicit application ports over default and Service target-port facts.
+- Added end-to-end Spring Boot workload-profile coverage for a single-component repository, asserting the 8080 exposure evidence and the liveness/readiness candidates.
+
+## Re-review Fix Test Results
+
+- Spring regression: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py::test_single_spring_boot_profile_uses_generic_port_and_probe_facts` passed (1 test).
+- Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (3 tests).
+- Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (248 tests).
