@@ -44,6 +44,31 @@ UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q
 
 Result: passed (exit code 0).
 
+## Review Fix: Brief Question Enrichment
+
+- The brief now enriches the `build_and_run` answer with workload-name-prefixed `Image build` and `Runtime deployment` profile summaries.
+- The `ports_and_services` answer now renders profile-derived `Workload controller candidates` and `Companion object candidates` separately, and includes compact workload relationship arrows.
+- Status, evidence, missing fields, and the existing seven-question structure are preserved. Briefs without workload profiles continue to use the legacy answer unchanged.
+- Added a section-extraction regression test that verifies profile-derived text occurs inside the relevant seven-question sections, rather than only in the separate workload-profile section.
+
+### Verification
+
+Command:
+
+```bash
+UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_markdown_reporter.py tests/test_brief_reporter.py
+```
+
+Result: passed (4 tests, exit code 0).
+
+Command:
+
+```bash
+UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q
+```
+
+Result: passed (261 tests, exit code 0).
+
 ## Review Fix: Nested Unresolved Decisions
 
 - Markdown profile rendering now includes `open_decisions` from exposure candidates (when present), probe candidates, Kubernetes object candidates, and workload relationships, in addition to image/runtime unresolved and open decisions.

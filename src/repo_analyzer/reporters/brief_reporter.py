@@ -46,7 +46,7 @@ def to_brief(result: AnalysisResult) -> str:
             out("")
             out(f"**Status:** {question.status}")
             out("")
-            out(f"**Answer:** {question.answer}")
+            out(f"**Answer:** {_question_answer(question.id, question.answer, result.workload_profiles)}")
             out("")
             out(f"**Evidence:** {_format_basis(question.basis)}")
             out("")
@@ -113,6 +113,81 @@ def _candidate_summary(out, label: str, candidates, role: str) -> None:
     names = [candidate.kind for candidate in candidates if candidate.candidate_role == role]
     if names:
         out(f"- {label}: {', '.join(names)}")
+
+
+def _question_answer(question_id: str, legacy_answer: str, profiles: list[WorkloadProfile]) -> str:
+    if not profiles:
+        return legacy_answer
+
+    if question_id == "build_and_run":
+        summaries = []
+        for profile in profiles:
+            image = profile.image_build_profile
+            runtime = profile.runtime_deployment_profile
+            image_details = _details(
+                [
+                    ("tool", image.build_tool),
+                    ("context", image.build_context),
+                    ("Dockerfile", image.dockerfile),
+                    ("image", image.image),
+                    ("source", image.image_source),
+                ]
+            )
+            runtime_details = _details(
+                [
+                    ("runtime", runtime.runtime),
+                    ("command", " ".join(runtime.command) if runtime.command else None),
+                    ("ports", ", ".join(str(port) for port in runtime.container_ports) or None),
+                ]
+            )
+            summaries.extend(
+                [
+                    f"{profile.name}: Image build: {image_details or 'no profile facts detected'}",
+                    f"{profile.name}: Runtime deployment: "
+                    f"{runtime_details or 'no profile facts detected'}",
+                ]
+            )
+        return _enriched_answer(legacy_answer, summaries)
+
+    if question_id == "ports_and_services":
+        summaries = []
+        relationships = []
+        for profile in profiles:
+            candidates = profile.runtime_deployment_profile.kubernetes_candidates
+            controllers = [
+                candidate.kind
+                for candidate in candidates
+                if candidate.candidate_role == "workload_controller"
+            ]
+            companions = [
+                candidate.kind
+                for candidate in candidates
+                if candidate.candidate_role == "companion_object"
+            ]
+            if controllers:
+                summaries.append(
+                    f"{profile.name}: Workload controller candidates: "
+                    f"{', '.join(controllers)}"
+                )
+            if companions:
+                summaries.append(
+                    f"{profile.name}: Companion object candidates: {', '.join(companions)}"
+                )
+            relationships.extend(
+                f"{relationship.source} -> {relationship.target}"
+                for relationship in profile.runtime_deployment_profile.relationships
+            )
+        if relationships:
+            summaries.append(f"Workload relationships: {'; '.join(dict.fromkeys(relationships))}")
+        return _enriched_answer(legacy_answer, summaries)
+
+    return legacy_answer
+
+
+def _enriched_answer(legacy_answer: str, summaries: list[str]) -> str:
+    if not summaries:
+        return legacy_answer
+    return f"{legacy_answer}\n\n" + "\n".join(f"- {summary}" for summary in summaries)
 
 
 def _format_basis(basis_items: list[AnswerBasis]) -> str:
