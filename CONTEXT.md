@@ -85,3 +85,67 @@ The structural check used to decide whether the analyzer output is complete enou
 ### Candidate Size Limit
 
 The maximum file size the analyzer will read for broad SQL and YAML candidate discovery. Files above this limit are not parsed and are reported as coverage gaps.
+
+### Repository Assessment
+
+A product-facing capability that evaluates a source repository for Kubernetes migration review by combining repository analysis, migration risks, unresolved owner questions, and evidence-backed explanations. Repository assessment is not Kubernetes manifest generation.
+
+### Capability Run Result
+
+The compact result envelope returned by a product-facing capability run. It reports the capability status, summary, artifacts, warnings, next actions, and compact counts without exposing the full internal repository understanding as the top-level response.
+
+Full analyzer output can be referenced as an artifact of the capability run result, but it is not embedded directly in the top-level result envelope.
+
+### Public HTTPS Repository Source
+
+A repository input that can be fetched from a public HTTPS Git URL without credentials. Private repositories, SSH URLs, and credential-bearing URLs are outside this source type.
+
+### GitHub Public Repository Source
+
+A public HTTPS repository source hosted on `github.com`. This is the only public HTTPS repository source supported by the first OpenShell-facing repository assessment package.
+
+### Credential-Bearing Repository Source
+
+A repository URL or source locator that embeds credentials, tokens, or userinfo. Credential-bearing repository sources are rejected rather than redacted and fetched.
+
+### Model-Visible Capability
+
+A capability that the agent runtime advertises to the model as an explicit callable action. Model-visible capabilities should align with user-visible decision points rather than internal parser steps.
+
+### Handoff Question
+
+A question for an application owner, platform owner, or operations owner that must be answered before Kubernetes migration work can proceed responsibly. Handoff questions are derived from repository unknowns, source conflicts, and migration risks.
+
+Handoff questions identify the owner, question type, question text, and why the answer is needed.
+
+### Evidence Explanation
+
+A concise explanation of why a finding was reported, including the repository-backed facts and source evidence that support it. Evidence explanations do not add new claims beyond the analyzed repository facts.
+
+### Repository Assessment Run
+
+A single repository assessment execution with a stable run identifier, fetched repository source, analyzed facts, generated artifacts, and compact capability results. Follow-up capabilities reuse the assessment run instead of re-fetching or re-analyzing the repository.
+
+Human-facing artifacts from a repository assessment run are written in Korean by default for the initial product audience, while machine-readable contract fields remain in English.
+
+### Resolved Repository Revision
+
+The concrete commit SHA analyzed for a repository source. When a public HTTPS repository source is provided without an explicit ref, the resolved repository revision is the commit reached from the repository's default branch at fetch time.
+
+### Analysis Complete Status
+
+The top-level status used when repository analysis completed successfully, even if the result contains repository unknowns, source conflicts, or migration risks. Those conditions are reported as findings, warnings, next actions, or handoff questions rather than changing the top-level status.
+
+### Migration Risk
+
+A repository-backed blocker or caution for Kubernetes migration, including analyzer warnings, source conflicts, unresolved operational inputs, image or runtime risks, and scanned-facts-only limitations. Migration risks must be tied to existing analyzer output rather than free-form model speculation.
+
+Migration risks use the severity labels `blocker` and `caution` rather than numerical scores.
+
+### Handoff Owner
+
+The role expected to answer a handoff question. Application owners answer application behavior, configuration, dependency, Secret, and probe questions; platform owners answer cluster policy, ingress, storage, scaling, availability, and operational guardrail questions.
+
+### Finding Reference
+
+A stable reference used to ask for evidence about a reported finding, such as a warning code, migration question id, or finding subject. A finding reference is preferred over a natural-language-only evidence lookup.
