@@ -100,6 +100,7 @@ class ImageBuildProfile(_Model):
     image_source: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
 
 class ExposureCandidate(_Model):
     port: int
@@ -148,6 +149,7 @@ class RuntimeDeploymentProfile(_Model):
     relationships: list[WorkloadRelationship] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
 
 class WorkloadProfile(_Model):
     name: str
@@ -168,8 +170,10 @@ and `RuntimeDeploymentProfile` may use profile-level `evidence` instead of
 wrapping every scalar in a fact object. Typed child objects such as exposure
 candidates, probe candidates, Kubernetes object candidates, and relationships
 must carry their own `evidence_type` and may also carry line evidence. A profile
-with non-empty claims and neither `evidence` nor `unresolved` should fail
-validation.
+with non-empty claims and neither `evidence`, `unresolved`, nor
+`open_decisions` should fail validation. Profile-level `open_decisions` are
+provenance text for unresolved design choices, just like profile-level
+`unresolved` text.
 
 ## File Structure
 

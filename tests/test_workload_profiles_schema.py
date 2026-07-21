@@ -126,5 +126,24 @@ def test_analysis_result_accepts_explicit_workload_profiles():
     ],
 )
 def test_non_empty_profiles_require_evidence_or_unresolved(profile_factory):
-    with pytest.raises(ValidationError, match="evidence or unresolved"):
+    with pytest.raises(ValidationError, match="evidence, unresolved, or open decisions"):
         profile_factory()
+
+
+@pytest.mark.parametrize(
+    "profile_factory",
+    [
+        lambda: ImageBuildProfile(
+            image_source="local_build",
+            open_decisions=["Which registry should publish this image?"],
+        ),
+        lambda: RuntimeDeploymentProfile(
+            runtime="FastAPI",
+            open_decisions=["Should this workload be exposed outside the cluster?"],
+        ),
+    ],
+)
+def test_non_empty_profiles_accept_open_decision_provenance(profile_factory):
+    profile = profile_factory()
+
+    assert profile.open_decisions

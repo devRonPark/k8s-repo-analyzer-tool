@@ -217,13 +217,16 @@ class ImageBuildProfile(_Model):
     image_source: str | None = None
     evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_provenance_for_claims(self) -> ImageBuildProfile:
-        if _has_profile_claims(self, {"evidence", "unresolved"}) and not (
-            self.evidence or self.unresolved
+        if _has_profile_claims(self, {"evidence", "unresolved", "open_decisions"}) and not (
+            self.evidence or self.unresolved or self.open_decisions
         ):
-            raise ValueError("non-empty profile requires evidence or unresolved input")
+            raise ValueError(
+                "non-empty profile requires evidence, unresolved, or open decisions input"
+            )
         return self
 
 
@@ -277,13 +280,16 @@ class RuntimeDeploymentProfile(_Model):
     relationships: list[WorkloadRelationship] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
+    open_decisions: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_provenance_for_claims(self) -> RuntimeDeploymentProfile:
-        if _has_profile_claims(self, {"evidence", "unresolved"}) and not (
-            self.evidence or self.unresolved
+        if _has_profile_claims(self, {"evidence", "unresolved", "open_decisions"}) and not (
+            self.evidence or self.unresolved or self.open_decisions
         ):
-            raise ValueError("non-empty profile requires evidence or unresolved input")
+            raise ValueError(
+                "non-empty profile requires evidence, unresolved, or open decisions input"
+            )
         return self
 
 
