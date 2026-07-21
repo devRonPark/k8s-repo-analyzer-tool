@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Confidence = Literal["explicit", "derived", "unresolved"]
 RelationshipType = Literal[
@@ -18,6 +18,21 @@ RelationshipType = Literal[
     "configuration_reference",
     "network_consumer",
     "build_time_binding",
+]
+ProfileEvidenceType = Literal[
+    "component_source",
+    "dockerfile",
+    "compose_build",
+    "compose_command",
+    "compose_depends_on",
+    "compose_port",
+    "compose_healthcheck",
+    "compose_volume",
+    "kubernetes_manifest",
+    "configuration_reference",
+    "runtime_dependency",
+    "container_image_finding",
+    "build_time_constraint",
 ]
 KubernetesObjectKind = Literal[
     "Deployment",
@@ -46,6 +61,18 @@ CoverageRole = Literal[
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+def _has_profile_claims(model: _Model, excluded_fields: set[str]) -> bool:
+    for field_name, value in model.__dict__.items():
+        if field_name in excluded_fields:
+            continue
+        if isinstance(value, (list, dict, set, tuple)):
+            if value:
+                return True
+        elif value is not None:
+            return True
+    return False
 
 
 class Evidence(_Model):
@@ -169,6 +196,7 @@ class WorkloadRelationship(_Model):
     source: str
     target: str
     relationship_type: RelationshipType
+    evidence_type: ProfileEvidenceType
     description: str
     confidence: Confidence
     evidence: list[Evidence] = Field(default_factory=list)
@@ -190,10 +218,19 @@ class ImageBuildProfile(_Model):
     evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _require_provenance_for_claims(self) -> ImageBuildProfile:
+        if _has_profile_claims(self, {"evidence", "unresolved"}) and not (
+            self.evidence or self.unresolved
+        ):
+            raise ValueError("non-empty profile requires evidence or unresolved input")
+        return self
+
 
 class ExposureCandidate(_Model):
     port: int
     source: str
+    evidence_type: ProfileEvidenceType
     confidence: Confidence
     service_candidate: bool
     description: str
@@ -203,6 +240,7 @@ class ExposureCandidate(_Model):
 class ProbeCandidateProfile(_Model):
     probe_type: str
     value: str
+    evidence_type: ProfileEvidenceType
     confidence: Confidence
     evidence: list[Evidence] = Field(default_factory=list)
     open_decisions: list[str] = Field(default_factory=list)
@@ -212,6 +250,7 @@ class KubernetesObjectCandidate(_Model):
     kind: KubernetesObjectKind
     name: str | None = None
     candidate_role: Literal["workload_controller", "companion_object"]
+    evidence_type: ProfileEvidenceType
     confidence: Confidence
     rationale: str
     evidence: list[Evidence] = Field(default_factory=list)
@@ -232,10 +271,20 @@ class RuntimeDeploymentProfile(_Model):
     configmap_candidates: list[str] = Field(default_factory=list)
     secret_candidates: list[str] = Field(default_factory=list)
     volumes: list[str] = Field(default_factory=list)
+    exposure_candidates: list[ExposureCandidate] = Field(default_factory=list)
     probe_candidates: list[ProbeCandidateProfile] = Field(default_factory=list)
     kubernetes_candidates: list[KubernetesObjectCandidate] = Field(default_factory=list)
     relationships: list[WorkloadRelationship] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _require_provenance_for_claims(self) -> RuntimeDeploymentProfile:
+        if _has_profile_claims(self, {"evidence", "unresolved"}) and not (
+            self.evidence or self.unresolved
+        ):
+            raise ValueError("non-empty profile requires evidence or unresolved input")
+        return self
 
 
 class WorkloadProfile(_Model):

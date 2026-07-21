@@ -45,6 +45,22 @@ RelationshipType = Literal[
     "build_time_binding",
 ]
 
+ProfileEvidenceType = Literal[
+    "component_source",
+    "dockerfile",
+    "compose_build",
+    "compose_command",
+    "compose_depends_on",
+    "compose_port",
+    "compose_healthcheck",
+    "compose_volume",
+    "kubernetes_manifest",
+    "configuration_reference",
+    "runtime_dependency",
+    "container_image_finding",
+    "build_time_constraint",
+]
+
 KubernetesObjectKind = Literal[
     "Deployment",
     "StatefulSet",
@@ -64,6 +80,7 @@ class WorkloadRelationship(_Model):
     source: str
     target: str
     relationship_type: RelationshipType
+    evidence_type: ProfileEvidenceType
     description: str
     confidence: Confidence
     evidence: list[Evidence] = Field(default_factory=list)
@@ -87,6 +104,7 @@ class ImageBuildProfile(_Model):
 class ExposureCandidate(_Model):
     port: int
     source: str
+    evidence_type: ProfileEvidenceType
     confidence: Confidence
     service_candidate: bool
     description: str
@@ -95,6 +113,7 @@ class ExposureCandidate(_Model):
 class ProbeCandidateProfile(_Model):
     probe_type: str
     value: str
+    evidence_type: ProfileEvidenceType
     confidence: Confidence
     evidence: list[Evidence] = Field(default_factory=list)
     open_decisions: list[str] = Field(default_factory=list)
@@ -103,6 +122,7 @@ class KubernetesObjectCandidate(_Model):
     kind: KubernetesObjectKind
     name: str | None = None
     candidate_role: Literal["workload_controller", "companion_object"]
+    evidence_type: ProfileEvidenceType
     confidence: Confidence
     rationale: str
     evidence: list[Evidence] = Field(default_factory=list)
@@ -122,9 +142,11 @@ class RuntimeDeploymentProfile(_Model):
     configmap_candidates: list[str] = Field(default_factory=list)
     secret_candidates: list[str] = Field(default_factory=list)
     volumes: list[str] = Field(default_factory=list)
+    exposure_candidates: list[ExposureCandidate] = Field(default_factory=list)
     probe_candidates: list[ProbeCandidateProfile] = Field(default_factory=list)
     kubernetes_candidates: list[KubernetesObjectCandidate] = Field(default_factory=list)
     relationships: list[WorkloadRelationship] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
     unresolved: list[str] = Field(default_factory=list)
 
 class WorkloadProfile(_Model):
@@ -140,6 +162,14 @@ Then add this field to `AnalysisResult` after `components`:
 ```python
 workload_profiles: list[WorkloadProfile] = Field(default_factory=list)
 ```
+
+Profile-level provenance rule: scalar/list values inside `ImageBuildProfile`
+and `RuntimeDeploymentProfile` may use profile-level `evidence` instead of
+wrapping every scalar in a fact object. Typed child objects such as exposure
+candidates, probe candidates, Kubernetes object candidates, and relationships
+must carry their own `evidence_type` and may also carry line evidence. A profile
+with non-empty claims and neither `evidence` nor `unresolved` should fail
+validation.
 
 ## File Structure
 
@@ -159,12 +189,14 @@ workload_profiles: list[WorkloadProfile] = Field(default_factory=list)
 **Interfaces:**
 - Produces: `AnalysisResult.workload_profiles: list[WorkloadProfile]`
 - Produces: model types named `ImageBuildProfile`, `RuntimeDeploymentProfile`, `WorkloadRelationship`, `ExposureCandidate`, `ProbeCandidateProfile`, and `KubernetesObjectCandidate`
+- Produces: `ProfileEvidenceType` and `evidence_type` fields on typed candidate, probe, exposure, and relationship objects
 
 - [ ] **Step 1: Write the failing schema test**
 
 ```python
 from repo_analyzer.models import (
     AnalysisResult,
+    Evidence,
     ImageBuildProfile,
     KubernetesObjectCandidate,
     RepositoryMetadata,
@@ -185,21 +217,41 @@ def test_analysis_result_accepts_explicit_workload_profiles():
                     dockerfile="backend/Dockerfile",
                     build_tool="Dockerfile",
                     image_source="local_build",
+                    evidence=[
+                        Evidence(
+                            path="compose.yml",
+                            selector="services.backend.build",
+                            symbol="build",
+                            start_line=10,
+                            end_line=13,
+                        )
+                    ],
                 ),
                 runtime_deployment_profile=RuntimeDeploymentProfile(
                     runtime="FastAPI",
                     language="Python",
                     container_ports=[8000],
+                    evidence=[
+                        Evidence(
+                            path="compose.yml",
+                            selector="services.backend",
+                            symbol="service",
+                            start_line=1,
+                            end_line=20,
+                        )
+                    ],
                     kubernetes_candidates=[
                         KubernetesObjectCandidate(
                             kind="Deployment",
                             candidate_role="workload_controller",
+                            evidence_type="component_source",
                             confidence="derived",
                             rationale="stateless HTTP application",
                         ),
                         KubernetesObjectCandidate(
                             kind="Service",
                             candidate_role="companion_object",
+                            evidence_type="compose_port",
                             confidence="derived",
                             rationale="inbound container port evidence",
                         ),
@@ -212,6 +264,7 @@ def test_analysis_result_accepts_explicit_workload_profiles():
     dumped = result.model_dump()
     assert dumped["workload_profiles"][0]["image_build_profile"]["dockerfile"] == "backend/Dockerfile"
     assert dumped["workload_profiles"][0]["runtime_deployment_profile"]["kubernetes_candidates"][0]["kind"] == "Deployment"
+    assert dumped["workload_profiles"][0]["runtime_deployment_profile"]["kubernetes_candidates"][1]["evidence_type"] == "compose_port"
 ```
 
 - [ ] **Step 2: Run the focused test and verify it fails**
@@ -223,6 +276,9 @@ Expected: FAIL because `ImageBuildProfile` or `workload_profiles` is not defined
 - [ ] **Step 3: Add the model definitions**
 
 Add the model classes from the Target Schema Shape section to `src/repo_analyzer/models.py`.
+Also add profile-level validation that rejects a non-empty
+`ImageBuildProfile` or `RuntimeDeploymentProfile` when it has neither line
+evidence nor unresolved/open-decision text.
 
 - [ ] **Step 4: Run the focused test and verify it passes**
 
