@@ -59,6 +59,13 @@ def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
         for rel in prestart.runtime_deployment_profile.relationships
     }
     assert ("prestart", "db", "startup_order") in prestart_relationships
+    prestart_db = next(
+        rel
+        for rel in prestart.runtime_deployment_profile.relationships
+        if rel.source == "prestart" and rel.target == "db" and rel.relationship_type == "startup_order"
+    )
+    assert prestart_db.evidence_type == "compose_depends_on"
+    assert all("depends_on" in evidence.selector for evidence in prestart_db.evidence)
 
     backend = _profile(result, "backend")
     relationships = {
@@ -67,11 +74,27 @@ def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
     }
     assert ("backend", "db", "startup_order") in relationships
     assert ("backend", "prestart", "startup_order") in relationships
+    backend_db = next(
+        rel
+        for rel in backend.runtime_deployment_profile.relationships
+        if rel.source == "backend" and rel.target == "db" and rel.relationship_type == "startup_order"
+    )
+    assert backend_db.evidence_type == "compose_depends_on"
+    assert all("depends_on" in evidence.selector for evidence in backend_db.evidence)
     assert all(
         rel.evidence_type == "compose_depends_on"
         for rel in backend.runtime_deployment_profile.relationships
         if rel.relationship_type == "startup_order"
     )
+
+    adminer = _profile(result, "adminer")
+    adminer_db = next(
+        rel
+        for rel in adminer.runtime_deployment_profile.relationships
+        if rel.source == "adminer" and rel.target == "db" and rel.relationship_type == "startup_order"
+    )
+    assert adminer_db.evidence_type == "compose_depends_on"
+    assert all("depends_on" in evidence.selector for evidence in adminer_db.evidence)
 
     frontend = _profile(result, "frontend")
     assert not any(

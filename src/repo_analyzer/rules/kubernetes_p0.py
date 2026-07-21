@@ -1965,19 +1965,32 @@ def _analyze_startup(
 ) -> None:
     order: list[str] = []
 
-    # DB readiness gates dependents (depends_on condition service_healthy).
+    # Every Compose dependency is startup-order evidence. Conditions add
+    # detail, but neither form specifies the Kubernetes mechanism to use.
     for service in compose.services:
         for dep in service.depends_on:
-            if isinstance(dep.value, dict) and dep.value.get("condition") == "service_healthy":
-                result.startup_order.append(
-                    Finding(
-                        subject=f"{service.name}.waits_for.{dep.value['service']}",
-                        value="service_healthy",
-                        confidence="explicit",
-                        kubernetes_effect="ordering: gate via initContainer/readiness on the dependency",
-                        evidence=[_ev(dep, compose_path)],
-                    )
+            dependency = (
+                str(dep.value["service"])
+                if isinstance(dep.value, dict)
+                else str(dep.value)
+            )
+            condition = (
+                str(dep.value.get("condition") or "startup_order")
+                if isinstance(dep.value, dict)
+                else "startup_order"
+            )
+            result.startup_order.append(
+                Finding(
+                    subject=f"{service.name}.waits_for.{dependency}",
+                    value=condition,
+                    confidence="explicit",
+                    kubernetes_effect=(
+                        "Compose startup-order evidence; choose an explicit Kubernetes "
+                        "coordination mechanism if one is required."
+                    ),
+                    evidence=[_ev(dep, compose_path)],
                 )
+            )
     if any(_has_db_service(compose)):
         order.append("database becomes ready")
 
@@ -2009,20 +2022,11 @@ def _analyze_startup(
                     )
                 )
 
-    # Backend waits for prestart completion.
+    # Keep the aggregate startup summary for completion-gated services.
     for service in compose.services:
         for dep in service.depends_on:
             if isinstance(dep.value, dict) and dep.value.get("condition") == "service_completed_successfully":
                 order.append(f"{service.name} starts")
-                result.startup_order.append(
-                    Finding(
-                        subject=f"{service.name}.waits_for.{dep.value['service']}",
-                        value="service_completed_successfully",
-                        confidence="explicit",
-                        kubernetes_effect="app Deployment must start only after the init Job completes",
-                        evidence=[_ev(dep, compose_path)],
-                    )
-                )
 
     if order:
         result.startup_order.insert(
