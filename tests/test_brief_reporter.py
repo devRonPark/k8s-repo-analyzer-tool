@@ -128,9 +128,14 @@ def test_brief_reporter_omits_service_for_traefik_host_without_port(tmp_path):
     result = analyze_repository(str(tmp_path))
     brief = to_brief(result)
     ports_and_services = _question_section(brief, result, "ports_and_services")
+    question = next(
+        question for question in result.migration_questions if question.id == "ports_and_services"
+    )
 
     assert result.workload_mappings[0].kubernetes_kind == "Deployment"
+    assert question.status == "partial"
     assert "Workload controller candidates: Deployment" in ports_and_services
     assert "Companion object candidates: Ingress" in ports_and_services
     assert "ClusterIP Service" not in ports_and_services
     assert "Companion object candidates: Service" not in ports_and_services
+    assert "**Missing:** Service targetPort for api" in ports_and_services

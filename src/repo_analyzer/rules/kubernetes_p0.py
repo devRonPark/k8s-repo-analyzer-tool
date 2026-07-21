@@ -1023,11 +1023,12 @@ def _question_ports_and_services(result: AnalysisResult) -> MigrationQuestionAns
         for finding in result.networking
         if "port" in finding.subject.lower() or "context_path" in finding.subject
     ]
-    parts = [
+    port_parts = [
         f"{component.name} targetPort {', '.join(str(port) for port in component.container_ports)}"
         for component in result.components
         if component.container_ports
     ]
+    parts = list(port_parts)
     if result.workload_mappings:
         parts.append(
             "; ".join(
@@ -1037,8 +1038,41 @@ def _question_ports_and_services(result: AnalysisResult) -> MigrationQuestionAns
         )
     if findings:
         parts.extend(f"{finding.subject}: {finding.value}" for finding in findings if finding.subject.startswith("k8s."))
-    missing = [] if parts else ["container port or Service targetPort"]
-    status = "answered" if parts and not missing else ("partial" if parts else "unresolved")
+
+    service_components = {
+        profile.name
+        for profile in result.workload_profiles
+        if any(
+            candidate.kind == "Service"
+            for candidate in profile.runtime_deployment_profile.kubernetes_candidates
+        )
+    }
+    port_components = {
+        component.name
+        for component in result.components
+        if component.container_ports or component.published_ports
+    }
+    missing = [
+        f"Service targetPort for {mapping.component}"
+        for mapping in result.workload_mappings
+        if mapping.component not in port_components
+        and mapping.component not in service_components
+        and not mapping.kubernetes_kind.startswith("Job")
+        and "no Service" not in mapping.kubernetes_kind
+    ]
+    port_or_service_evidence = bool(
+        port_parts
+        or service_components
+        or any("port" in finding.subject.lower() for finding in findings)
+    )
+    if not parts:
+        missing = ["container port or Service targetPort"]
+    if port_or_service_evidence and not missing:
+        status = "answered"
+    elif parts:
+        status = "partial"
+    else:
+        status = "unresolved"
     return MigrationQuestionAnswer(
         id="ports_and_services",
         question=question,
@@ -1081,7 +1115,13 @@ def _question_configmaps_and_secrets(result: AnalysisResult) -> MigrationQuestio
         or finding.subject.startswith("k8s.configmap_ref.")
     ]
     secrets = result.secrets
-    if not config and not secrets:
+    unresolved_values = [
+        item
+        for item in result.unresolved_operational_inputs
+        if ".environment." in item.subject
+        and item.reason.startswith("Compose passes this environment variable through")
+    ]
+    if not config and not secrets and not unresolved_values:
         return MigrationQuestionAnswer(
             id="configmaps_and_secrets",
             question=question,
@@ -1089,13 +1129,23 @@ def _question_configmaps_and_secrets(result: AnalysisResult) -> MigrationQuestio
             answer="No ConfigMap or Secret candidates were detected.",
             missing=["ConfigMap/Secret candidates were not detected in scanned repository facts"],
         )
+    unresolved_secrets = [
+        item for item in unresolved_values if "Secret" in item.kubernetes_effect
+    ]
+    unresolved_config = [
+        item for item in unresolved_values if "ConfigMap" in item.kubernetes_effect
+    ]
     return MigrationQuestionAnswer(
         id="configmaps_and_secrets",
         question=question,
-        status="answered",
-        answer=f"ConfigMap candidates: {len(config)}; Secret candidates: {len(secrets)}",
+        status="partial" if unresolved_values else "answered",
+        answer=(
+            f"ConfigMap candidates: {len(config) + len(unresolved_config)}; "
+            f"Secret candidates: {len(secrets) + len(unresolved_secrets)}"
+        ),
         basis=[_basis("configuration", finding.subject, finding.evidence) for finding in config]
         + [_basis("secrets", finding.subject, finding.evidence) for finding in secrets],
+        missing=_dedupe([item.needed_input for item in unresolved_values]),
     )
 
 
@@ -1408,10 +1458,31 @@ def _analyze_service(
 
     # Environment / secrets referenced by this service.
     for entry in service.environment:
-        name = _env_name(entry.value)
+        raw = str(entry.value)
+        name = _env_name(raw)
         if name and name not in component.environment:
             component.environment.append(name)
         if not name:
+            continue
+        if "=" not in raw:
+            secret = is_secret(name)
+            result.unresolved_operational_inputs.append(
+                Unresolved(
+                    subject=f"{service.name}.environment.{name}",
+                    reason=(
+                        "Compose passes this environment variable through without a "
+                        "repository-backed value"
+                    ),
+                    needed_input=(
+                        f"runtime secret value for {name}"
+                        if secret
+                        else f"runtime value for {name}"
+                    ),
+                    kubernetes_effect=(
+                        f"Kubernetes {'Secret' if secret else 'ConfigMap'} data key {name}"
+                    ),
+                )
+            )
             continue
         if is_secret(name):
             result.secrets.append(
@@ -1424,7 +1495,7 @@ def _analyze_service(
                 )
             )
         else:
-            value = str(entry.value).partition("=")[2]
+            value = raw.partition("=")[2]
             result.configuration.append(
                 Finding(
                     subject=f"{service.name}.config.{name}",

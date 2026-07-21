@@ -9,6 +9,9 @@ from repo_analyzer.models import (
     RepositoryMetadata,
     WorkloadMapping,
 )
+from repo_analyzer.reporters.brief_reporter import to_brief
+from repo_analyzer.reporters.json_reporter import to_json
+from repo_analyzer.reporters.markdown_reporter import to_markdown
 from repo_analyzer.rules.kubernetes_p0 import _published_port_number, _workload_profile
 
 
@@ -459,6 +462,11 @@ def test_profile_separates_published_port_from_container_port(tmp_path):
     runtime = _profile(result, "api").runtime_deployment_profile
     assert runtime.container_ports == [8082]
     assert runtime.published_ports == ["3000:8080/tcp", "127.0.0.1:3001:8081"]
+    question = next(
+        question for question in result.migration_questions if question.id == "ports_and_services"
+    )
+    assert question.status == "answered"
+    assert question.missing == []
 
 
 def test_inline_compose_environment_candidates_use_entry_evidence(tmp_path):
@@ -491,6 +499,58 @@ def test_inline_compose_environment_candidates_use_entry_evidence(tmp_path):
     assert [evidence.selector for evidence in secret.evidence] == [
         "$.services.api.environment.API_TOKEN"
     ]
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        "      - LOG_LEVEL\n      - API_TOKEN\n",
+        "      LOG_LEVEL:\n      API_TOKEN:\n",
+    ],
+    ids=["list", "mapping"],
+)
+def test_compose_environment_pass_through_values_remain_unresolved(tmp_path, environment):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: example/api:latest\n"
+        "    environment:\n"
+        + environment
+    )
+
+    result = analyze_repository(str(tmp_path))
+    runtime = _profile(result, "api").runtime_deployment_profile
+    unresolved = {
+        item.subject: item.needed_input for item in result.unresolved_operational_inputs
+    }
+    question = next(
+        question
+        for question in result.migration_questions
+        if question.id == "configmaps_and_secrets"
+    )
+
+    assert runtime.environment == ["LOG_LEVEL", "API_TOKEN"]
+    assert runtime.configmap_candidates == ["LOG_LEVEL"]
+    assert runtime.secret_candidates == ["API_TOKEN"]
+    assert not any(
+        finding.subject == "api.config.LOG_LEVEL" for finding in result.configuration
+    )
+    assert not any(finding.subject == "api.secret.API_TOKEN" for finding in result.secrets)
+    assert unresolved["api.environment.LOG_LEVEL"] == "runtime value for LOG_LEVEL"
+    assert unresolved["api.environment.API_TOKEN"] == "runtime secret value for API_TOKEN"
+    assert question.status == "partial"
+    assert question.answer == "ConfigMap candidates: 1; Secret candidates: 1"
+    assert question.missing == [
+        "runtime value for LOG_LEVEL",
+        "runtime secret value for API_TOKEN",
+    ]
+
+    json_output = to_json(result)
+    assert '"value": ""' not in json_output
+    assert '"value": "None"' not in json_output
+    for output in (to_markdown(result), to_brief(result)):
+        assert "runtime value for LOG_LEVEL" in output
+        assert "runtime secret value for API_TOKEN" in output
 
 
 def test_image_only_compose_service_has_no_service_candidate(tmp_path):
@@ -532,3 +592,8 @@ def test_traefik_host_label_without_port_has_ingress_but_no_service_candidate(tm
     assert all(evidence.symbol == "traefik.host" for evidence in ingress.evidence)
     assert not any(candidate.kind == "Service" for candidate in candidates)
     assert not any(candidate.evidence_type == "compose_port" for candidate in candidates)
+    question = next(
+        question for question in result.migration_questions if question.id == "ports_and_services"
+    )
+    assert question.status == "partial"
+    assert question.missing == ["Service targetPort for api"]
