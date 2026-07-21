@@ -479,12 +479,28 @@ def _component_findings(component: Component, result: AnalysisResult) -> dict[st
         "configuration": [
             finding
             for finding in result.configuration
-            if finding.subject.removeprefix("config.") in component.environment
+            if (
+                finding.subject.startswith(f"{component.name}.config.")
+                and finding.subject.removeprefix(f"{component.name}.config.")
+                in component.environment
+            )
+            or (
+                finding.subject.startswith("config.")
+                and finding.subject.removeprefix("config.") in component.environment
+            )
         ],
         "secrets": [
             finding
             for finding in result.secrets
-            if finding.subject.removeprefix("secret.") in component.secret_candidates
+            if (
+                finding.subject.startswith(f"{component.name}.secret.")
+                and finding.subject.removeprefix(f"{component.name}.secret.")
+                in component.secret_candidates
+            )
+            or (
+                finding.subject.startswith("secret.")
+                and finding.subject.removeprefix("secret.") in component.secret_candidates
+            )
         ],
     }
 
@@ -635,12 +651,12 @@ def _kubernetes_candidates(
             candidates.append(_kubernetes_candidate("PVC", "companion_object", "compose_volume", finding.confidence, "persistent compose volume requires a PVC candidate", finding.evidence))
             break
     config_names = [name for name in component.environment if name not in component.secret_candidates]
-    if config_names:
-        evidence = _finding_evidence(findings["configuration"]) or mapping_evidence
-        candidates.append(_kubernetes_candidate("ConfigMap", "companion_object", "configuration_reference", "derived", "non-secret environment entries are ConfigMap key candidates", evidence))
-    if component.secret_candidates:
-        evidence = _finding_evidence(findings["secrets"]) or mapping_evidence
-        candidates.append(_kubernetes_candidate("Secret", "companion_object", "configuration_reference", "derived", "secret-like environment entries are Secret key candidates", evidence))
+    config_evidence = _finding_evidence(findings["configuration"])
+    if config_names and config_evidence:
+        candidates.append(_kubernetes_candidate("ConfigMap", "companion_object", "configuration_reference", "derived", "non-secret environment entries are ConfigMap key candidates", config_evidence))
+    secret_evidence = _finding_evidence(findings["secrets"])
+    if component.secret_candidates and secret_evidence:
+        candidates.append(_kubernetes_candidate("Secret", "companion_object", "configuration_reference", "derived", "secret-like environment entries are Secret key candidates", secret_evidence))
     for finding in findings["networking"]:
         if finding.subject.endswith("ingress_host"):
             candidates.append(_kubernetes_candidate("Ingress", "companion_object", "component_source", finding.confidence, "repository routing host is an Ingress candidate", finding.evidence))
@@ -1188,6 +1204,29 @@ def _analyze_service(
         name = _env_name(entry.value)
         if name and name not in component.environment:
             component.environment.append(name)
+        if not name:
+            continue
+        if is_secret(name):
+            result.secrets.append(
+                Finding(
+                    subject=f"{service.name}.secret.{name}",
+                    value="<redacted>",
+                    confidence="explicit",
+                    kubernetes_effect="Kubernetes Secret key candidate for this Compose service",
+                    evidence=[_ev(entry, compose_path, "env")],
+                )
+            )
+        else:
+            value = str(entry.value).partition("=")[2]
+            result.configuration.append(
+                Finding(
+                    subject=f"{service.name}.config.{name}",
+                    value=value,
+                    confidence="explicit",
+                    kubernetes_effect="ConfigMap key candidate for this Compose service",
+                    evidence=[_ev(entry, compose_path, "env")],
+                )
+            )
     component.secret_candidates = [n for n in component.environment if is_secret(n)]
 
     # Ports.

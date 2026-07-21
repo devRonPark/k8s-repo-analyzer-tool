@@ -90,3 +90,24 @@ The task brief expected the backend build context to be `./backend`, but the che
   ........................................................................ [ 86%]
   ..................................                                       [100%]
   ```
+
+## Inline Compose Environment Provenance Fix
+
+- Emit service-scoped `service.config.NAME` and `service.secret.NAME` findings for every inline Compose environment entry, retaining the entry's exact Compose evidence. Secret findings keep their value redacted.
+- Match both service-scoped environment findings and existing global `.env` findings when constructing component facts.
+- ConfigMap and Secret candidates now require matching configuration or secret findings, so they no longer fall back to broad workload-mapping evidence.
+- Added regression coverage for inline non-secret and secret environment entries, including candidate evidence selectors and redaction.
+
+## Inline Compose Environment Provenance Test Results
+
+- Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed.
+  ```text
+  ......                                                                   [100%]
+  ```
+- Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed.
+  ```text
+  ........................................................................ [ 28%]
+  ........................................................................ [ 57%]
+  ........................................................................ [ 86%]
+  ...................................                                      [100%]
+  ```

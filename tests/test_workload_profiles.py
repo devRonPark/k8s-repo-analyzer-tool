@@ -181,3 +181,35 @@ def test_profile_separates_published_port_from_container_port(tmp_path):
         "$.services.api.ports[2]",
     ]
     assert all(candidate.evidence for candidate in published_candidates)
+
+
+def test_inline_compose_environment_candidates_use_entry_evidence(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  api:\n"
+        "    image: example/api:latest\n"
+        "    environment:\n"
+        "      LOG_LEVEL: info\n"
+        "      API_TOKEN: top-secret\n"
+    )
+
+    result = analyze_repository(str(tmp_path))
+    candidates = _profile(result, "api").runtime_deployment_profile.kubernetes_candidates
+
+    configmap = next(candidate for candidate in candidates if candidate.kind == "ConfigMap")
+    secret = next(candidate for candidate in candidates if candidate.kind == "Secret")
+    config_finding = next(
+        finding for finding in result.configuration if finding.subject == "api.config.LOG_LEVEL"
+    )
+    secret_finding = next(
+        finding for finding in result.secrets if finding.subject == "api.secret.API_TOKEN"
+    )
+
+    assert config_finding.value == "info"
+    assert secret_finding.value == "<redacted>"
+    assert [evidence.selector for evidence in configmap.evidence] == [
+        "$.services.api.environment.LOG_LEVEL"
+    ]
+    assert [evidence.selector for evidence in secret.evidence] == [
+        "$.services.api.environment.API_TOKEN"
+    ]
