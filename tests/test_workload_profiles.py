@@ -1,3 +1,5 @@
+import pytest
+
 from repo_analyzer.analyzer import analyze_repository
 from repo_analyzer.models import (
     AnalysisResult,
@@ -134,6 +136,97 @@ def test_workload_profile_does_not_infer_build_target_from_evidence_path():
                         end_line=1,
                     )
                 ],
+            )
+        ],
+    )
+
+    profile = _workload_profile(frontend, None, result, profile_count=2)
+
+    assert not profile.runtime_deployment_profile.relationships
+    assert profile.runtime_deployment_profile.open_decisions == [
+        "Resolve the target for build-time constraint frontend.vite_api_url_binding before deployment."
+    ]
+
+
+def test_workload_profile_uses_exact_build_target_value():
+    frontend = Component(name="frontend", workload_candidate="Deployment")
+    mapping_evidence = Evidence(
+        path="compose.yml",
+        selector="$.services.frontend",
+        start_line=1,
+        end_line=1,
+    )
+    finding_evidence = Evidence(
+        path="frontend/Dockerfile",
+        selector="ARG VITE_API_URL",
+        start_line=3,
+        end_line=3,
+    )
+    result = AnalysisResult(
+        repository=RepositoryMetadata(name="example", profile="test", file_count=0),
+        components=[frontend, Component(name="backend", workload_candidate="Deployment")],
+        build_time_constraints=[
+            Finding(
+                subject="frontend.vite_api_url_binding",
+                value="backend",
+                confidence="explicit",
+                kubernetes_effect="requires an image rebuild",
+                evidence=[finding_evidence],
+            )
+        ],
+    )
+    mapping = WorkloadMapping(
+        component="frontend",
+        kubernetes_kind="Deployment",
+        confidence="explicit",
+        rationale="fixture mapping",
+        evidence=[mapping_evidence],
+    )
+
+    profile = _workload_profile(frontend, mapping, result, profile_count=2)
+
+    assert len(profile.runtime_deployment_profile.relationships) == 1
+    relationship = profile.runtime_deployment_profile.relationships[0]
+    assert (relationship.source, relationship.target, relationship.relationship_type) == (
+        "frontend",
+        "backend",
+        "build_time_binding",
+    )
+    assert relationship.evidence_type == "build_time_constraint"
+    assert relationship.confidence == "explicit"
+    assert relationship.evidence == [finding_evidence]
+    assert not profile.runtime_deployment_profile.open_decisions
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        Evidence(
+            path="frontend/backend/reference.txt",
+            selector="VITE_API_URL",
+            start_line=1,
+            end_line=1,
+        ),
+        Evidence(
+            path="frontend/Dockerfile",
+            selector="backend",
+            start_line=1,
+            end_line=1,
+        ),
+    ],
+)
+def test_workload_profile_does_not_infer_build_target_from_evidence(evidence):
+    frontend = Component(name="frontend", workload_candidate="Deployment")
+    result = AnalysisResult(
+        repository=RepositoryMetadata(name="example", profile="test", file_count=0),
+        components=[frontend, Component(name="backend", workload_candidate="Deployment")],
+        build_time_constraints=[
+            Finding(
+                subject="frontend.vite_api_url_binding",
+                value="build-time",
+                confidence="derived",
+                kubernetes_effect="requires an image rebuild",
+                evidence=[evidence],
             )
         ],
     )

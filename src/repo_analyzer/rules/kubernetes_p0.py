@@ -540,6 +540,23 @@ def _workload_relationships(
     for finding in result.build_time_constraints:
         if not finding.subject.startswith(f"{component.name}."):
             continue
+        if (
+            isinstance(finding.value, str)
+            and finding.value in component_names
+            and finding.value != component.name
+        ):
+            relationships.append(
+                WorkloadRelationship(
+                    source=component.name,
+                    target=finding.value,
+                    relationship_type="build_time_binding",
+                    evidence_type="build_time_constraint",
+                    description=f"{component.name} has a build-time binding to {finding.value}.",
+                    confidence=finding.confidence,
+                    evidence=list(finding.evidence),
+                )
+            )
+            continue
         open_decisions.append(
             f"Resolve the target for build-time constraint {finding.subject} before deployment."
         )
