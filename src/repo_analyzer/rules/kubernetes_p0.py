@@ -583,11 +583,16 @@ def _probe_candidates(
     candidates: list[ProbeCandidateProfile] = []
     for finding in health_checks:
         probe_type = "liveness" if "liveness" in finding.subject else "readiness"
+        evidence_type = (
+            "configuration_reference"
+            if finding.subject in {"health.liveness_probe", "health.readiness_probe"}
+            else _evidence_type(finding.evidence, "compose_healthcheck")
+        )
         candidates.append(
             ProbeCandidateProfile(
                 probe_type=probe_type,
                 value=str(finding.value),
-                evidence_type=_evidence_type(finding.evidence, "compose_healthcheck"),
+                evidence_type=evidence_type,
                 confidence=finding.confidence,
                 evidence=list(finding.evidence),
             )

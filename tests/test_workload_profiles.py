@@ -140,6 +140,9 @@ def test_single_spring_boot_profile_uses_generic_port_and_probe_facts(tmp_path):
         "/actuator/health/liveness",
         "/actuator/health/readiness",
     }
+    assert {
+        candidate.evidence_type for candidate in runtime.probe_candidates
+    } == {"configuration_reference"}
 
 
 def test_published_port_number_uses_host_side_port():

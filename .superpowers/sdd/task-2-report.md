@@ -70,3 +70,23 @@ The task brief expected the backend build context to be `./backend`, but the che
 
 - Focused: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py` passed (5 tests).
 - Full suite: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q` passed (250 tests).
+
+## Probe Evidence-Type Fix
+
+- Generic single-component `health.liveness_probe` and `health.readiness_probe` candidates now use `configuration_reference` rather than `compose_healthcheck`.
+- Component-prefixed Compose health-path and health-exec findings continue to use `compose_healthcheck`.
+- Added a regression assertion for the Spring Boot single-component profile and retained the full-stack backend Compose provenance assertion. Relationships remain unchanged and empty.
+
+## Probe Evidence-Type Test Results
+
+- Focused command: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q tests/test_workload_profiles.py`
+  ```text
+  .....                                                                    [100%]
+  ```
+- Full-suite command: `UV_CACHE_DIR=.uv-cache /home/daolts/.local/bin/uv run pytest -q`
+  ```text
+  ........................................................................ [ 28%]
+  ........................................................................ [ 57%]
+  ........................................................................ [ 86%]
+  ..................................                                       [100%]
+  ```
