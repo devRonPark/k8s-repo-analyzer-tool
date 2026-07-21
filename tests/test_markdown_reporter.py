@@ -76,3 +76,20 @@ def test_markdown_reporter_includes_candidate_and_relationship_open_decisions():
     assert "- Choose the deployment strategy." in markdown
     assert "- Confirm the database endpoint." in markdown
     assert markdown.count("- Choose the deployment strategy.") == 1
+
+
+def test_markdown_reporter_scopes_missing_relationships_to_scanned_repository_facts():
+    result = AnalysisResult(
+        repository=RepositoryMetadata(name="repo", profile="kubernetes-p0", file_count=0),
+        workload_profiles=[
+            WorkloadProfile(
+                name="worker",
+                image_build_profile=ImageBuildProfile(),
+                runtime_deployment_profile=RuntimeDeploymentProfile(),
+            )
+        ],
+    )
+
+    markdown = to_markdown(result)
+
+    assert "_No workload relationships detected in scanned repository facts._" in markdown

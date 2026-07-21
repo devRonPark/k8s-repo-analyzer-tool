@@ -399,7 +399,6 @@ def _workload_profile(
         + _finding_evidence(component_findings["configuration"])
         + _finding_evidence(component_findings["secrets"])
     )
-    image_unresolved = list(mapping.unresolved) if mapping else []
     runtime_unresolved = _dedupe(component.unresolved + (mapping.unresolved if mapping else []))
 
     image_profile = ImageBuildProfile(
@@ -414,7 +413,7 @@ def _workload_profile(
         base_image=_base_image_for_component(component, result.container_image, profile_count),
         image_source="local_build" if component.build_context or component.dockerfile else None,
         evidence=image_evidence,
-        unresolved=image_unresolved,
+        unresolved=[],
     )
     runtime_profile = RuntimeDeploymentProfile(
         runtime=component.runtime,
@@ -444,7 +443,7 @@ def _workload_profile(
     )
     return WorkloadProfile(
         name=component.name,
-        role=component.workload_candidate or None,
+        role=None,
         source_files=list(component.source_files),
         image_build_profile=image_profile,
         runtime_deployment_profile=runtime_profile,
@@ -476,7 +475,10 @@ def _workload_relationships(
                     target=target,
                     relationship_type="startup_order",
                     evidence_type="compose_depends_on",
-                    description=f"Compose starts {component.name} after {target}.",
+                    description=(
+                        f"Compose starts {component.name} after {target} with condition "
+                        f"{startup_finding.value}."
+                    ),
                     confidence=startup_finding.confidence,
                     evidence=list(startup_finding.evidence),
                 )
@@ -761,8 +763,14 @@ def _kubernetes_candidates(
     elif "Deployment" in kind_text:
         candidates.append(_kubernetes_candidate("Deployment", "workload_controller", "component_source", confidence, rationale, mapping_evidence))
 
-    if "Service" in kind_text and "no service" not in kind_text.lower() and _service_candidate_allowed(component):
-        evidence = _finding_evidence(findings["networking"]) or mapping_evidence
+    service_evidence = _finding_evidence(findings["networking"])
+    if (
+        "Service" in kind_text
+        and "no service" not in kind_text.lower()
+        and _service_candidate_allowed(component)
+        and service_evidence
+    ):
+        evidence = service_evidence
         candidates.append(_kubernetes_candidate("Service", "companion_object", _evidence_type(evidence, "component_source"), confidence, "inbound port evidence supports a Service candidate", evidence))
     for finding in findings["storage"]:
         if finding.subject.endswith("persistent_volume"):

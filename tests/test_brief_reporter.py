@@ -1,4 +1,11 @@
 from repo_analyzer.analyzer import analyze_repository
+from repo_analyzer.models import (
+    AnalysisResult,
+    ImageBuildProfile,
+    RepositoryMetadata,
+    RuntimeDeploymentProfile,
+    WorkloadProfile,
+)
 from repo_analyzer.reporters.brief_reporter import to_brief
 
 
@@ -38,3 +45,58 @@ def test_brief_reporter_enriches_relevant_question_answers_from_workload_profile
     assert "Workload controller candidates:" in ports_and_services
     assert "Companion object candidates:" in ports_and_services
     assert "backend -> db" in ports_and_services
+
+
+def test_brief_reporter_renders_and_enriches_profile_open_decisions(golden_repo):
+    result = analyze_repository(str(golden_repo))
+    backend = next(profile for profile in result.workload_profiles if profile.name == "backend")
+    frontend = next(profile for profile in result.workload_profiles if profile.name == "frontend")
+
+    backend.image_build_profile.open_decisions.append("Choose image provenance.")
+    backend.runtime_deployment_profile.open_decisions.append("Choose rollout strategy.")
+    backend.runtime_deployment_profile.kubernetes_candidates[0].open_decisions.extend(
+        ["Choose rollout strategy.", "Confirm service ownership."]
+    )
+    backend.runtime_deployment_profile.probe_candidates[0].open_decisions.append(
+        "Confirm probe thresholds."
+    )
+    backend.runtime_deployment_profile.relationships[0].open_decisions.append(
+        "Confirm dependency coordination."
+    )
+
+    brief = to_brief(result)
+    workload_section = brief[
+        brief.index("## Workload profiles") : brief.index("## Seven migration questions")
+    ]
+    unknowns = _question_section(brief, result, "repository_unknowns")
+    decisions = [
+        "Choose image provenance.",
+        "Choose rollout strategy.",
+        "Confirm service ownership.",
+        "Confirm probe thresholds.",
+        "Confirm dependency coordination.",
+        frontend.runtime_deployment_profile.open_decisions[0],
+    ]
+
+    for decision in decisions:
+        assert decision in workload_section
+        assert decision in unknowns
+    assert workload_section.count("Choose rollout strategy.") == 1
+    assert unknowns.count("Choose rollout strategy.") == 1
+
+
+def test_brief_reporter_scopes_missing_profile_facts_to_scanned_repository_facts():
+    result = AnalysisResult(
+        repository=RepositoryMetadata(name="repo", profile="kubernetes-p0", file_count=0),
+        workload_profiles=[
+            WorkloadProfile(
+                name="worker",
+                image_build_profile=ImageBuildProfile(),
+                runtime_deployment_profile=RuntimeDeploymentProfile(),
+            )
+        ],
+    )
+
+    brief = to_brief(result)
+
+    assert "no profile facts detected in scanned repository facts" in brief

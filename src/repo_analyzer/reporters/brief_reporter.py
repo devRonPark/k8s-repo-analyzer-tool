@@ -83,7 +83,10 @@ def _workload_profiles_section(out, profiles: list[WorkloadProfile]) -> None:
                 ("source", image.image_source),
             ]
         )
-        out(f"- Image build: {image_details or 'no profile facts detected'}")
+        out(
+            "- Image build: "
+            f"{image_details or 'no profile facts detected in scanned repository facts'}"
+        )
 
         runtime_details = _details(
             [
@@ -92,7 +95,10 @@ def _workload_profiles_section(out, profiles: list[WorkloadProfile]) -> None:
                 ("ports", ", ".join(str(port) for port in runtime.container_ports) or None),
             ]
         )
-        out(f"- Runtime deployment: {runtime_details or 'no profile facts detected'}")
+        out(
+            "- Runtime deployment: "
+            f"{runtime_details or 'no profile facts detected in scanned repository facts'}"
+        )
 
         _candidate_summary(out, "Workload controller candidates", runtime.kubernetes_candidates, "workload_controller")
         _candidate_summary(out, "Companion object candidates", runtime.kubernetes_candidates, "companion_object")
@@ -102,6 +108,9 @@ def _workload_profiles_section(out, profiles: list[WorkloadProfile]) -> None:
                 f"{relationship.source} -> {relationship.target}"
                 for relationship in runtime.relationships
             ))
+        decisions = _profile_open_decisions(profile)
+        if decisions:
+            out(f"- Open decisions: {'; '.join(decisions)}")
         out("")
 
 
@@ -142,9 +151,10 @@ def _question_answer(question_id: str, legacy_answer: str, profiles: list[Worklo
             )
             summaries.extend(
                 [
-                    f"{profile.name}: Image build: {image_details or 'no profile facts detected'}",
+                    f"{profile.name}: Image build: "
+                    f"{image_details or 'no profile facts detected in scanned repository facts'}",
                     f"{profile.name}: Runtime deployment: "
-                    f"{runtime_details or 'no profile facts detected'}",
+                    f"{runtime_details or 'no profile facts detected in scanned repository facts'}",
                 ]
             )
         return _enriched_answer(legacy_answer, summaries)
@@ -181,7 +191,46 @@ def _question_answer(question_id: str, legacy_answer: str, profiles: list[Worklo
             summaries.append(f"Workload relationships: {'; '.join(dict.fromkeys(relationships))}")
         return _enriched_answer(legacy_answer, summaries)
 
+    if question_id == "repository_unknowns":
+        decisions = list(
+            dict.fromkeys(
+                decision
+                for profile in profiles
+                for decision in _profile_open_decisions(profile)
+            )
+        )
+        summaries = (
+            [f"Workload profile open decisions: {'; '.join(decisions)}"]
+            if decisions
+            else []
+        )
+        return _enriched_answer(legacy_answer, summaries)
+
     return legacy_answer
+
+
+def _profile_open_decisions(profile: WorkloadProfile) -> list[str]:
+    image = profile.image_build_profile
+    runtime = profile.runtime_deployment_profile
+    decisions = [
+        *image.open_decisions,
+        *runtime.open_decisions,
+        *(
+            decision
+            for candidate in (
+                *runtime.exposure_candidates,
+                *runtime.probe_candidates,
+                *runtime.kubernetes_candidates,
+            )
+            for decision in getattr(candidate, "open_decisions", ())
+        ),
+        *(
+            decision
+            for relationship in runtime.relationships
+            for decision in relationship.open_decisions
+        ),
+    ]
+    return list(dict.fromkeys(decisions))
 
 
 def _enriched_answer(legacy_answer: str, summaries: list[str]) -> str:

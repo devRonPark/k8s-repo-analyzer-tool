@@ -60,6 +60,30 @@ def test_full_stack_fastapi_profiles_group_build_and_runtime(golden_repo):
     )
 
 
+def test_full_stack_profiles_keep_operational_decisions_out_of_image_build(golden_repo):
+    result = analyze_repository(str(golden_repo))
+
+    for name in ("backend", "db"):
+        profile = _profile(result, name)
+        assert profile.image_build_profile.unresolved == []
+        assert profile.runtime_deployment_profile.unresolved
+
+    backend_runtime = _profile(result, "backend").runtime_deployment_profile.unresolved
+    assert "replica count" in backend_runtime
+    assert "CPU/memory" in backend_runtime
+
+    database_runtime = _profile(result, "db").runtime_deployment_profile.unresolved
+    assert "PVC size" in database_runtime
+    assert "StorageClass" in database_runtime
+    assert "DB HA & backup policy" in database_runtime
+
+
+def test_full_stack_profiles_do_not_reuse_kubernetes_mapping_as_role(golden_repo):
+    result = analyze_repository(str(golden_repo))
+
+    assert all(profile.role is None for profile in result.workload_profiles)
+
+
 def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
     result = analyze_repository(str(golden_repo), git_ref="4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8")
 
@@ -90,7 +114,16 @@ def test_full_stack_fastapi_profiles_include_relationships(golden_repo):
         if rel.source == "backend" and rel.target == "db" and rel.relationship_type == "startup_order"
     )
     assert backend_db.evidence_type == "compose_depends_on"
+    assert "service_healthy" in backend_db.description
     assert all("depends_on" in evidence.selector for evidence in backend_db.evidence)
+    backend_prestart = next(
+        rel
+        for rel in backend.runtime_deployment_profile.relationships
+        if rel.source == "backend"
+        and rel.target == "prestart"
+        and rel.relationship_type == "startup_order"
+    )
+    assert "service_completed_successfully" in backend_prestart.description
     assert all(
         rel.evidence_type == "compose_depends_on"
         for rel in backend.runtime_deployment_profile.relationships
@@ -427,3 +460,25 @@ def test_inline_compose_environment_candidates_use_entry_evidence(tmp_path):
     assert [evidence.selector for evidence in secret.evidence] == [
         "$.services.api.environment.API_TOKEN"
     ]
+
+
+def test_image_only_compose_service_has_no_service_candidate(tmp_path):
+    (tmp_path / "compose.yml").write_text(
+        "services:\n"
+        "  worker:\n"
+        "    image: example/worker:latest\n"
+    )
+
+    result = analyze_repository(str(tmp_path))
+    profile = _profile(result, "worker")
+
+    service_candidates = [
+        candidate
+        for candidate in profile.runtime_deployment_profile.kubernetes_candidates
+        if candidate.kind == "Service"
+    ]
+    assert service_candidates == []
+    assert all(
+        candidate.evidence_type != "compose_port"
+        for candidate in profile.runtime_deployment_profile.kubernetes_candidates
+    )

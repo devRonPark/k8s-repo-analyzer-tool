@@ -381,6 +381,7 @@ def _build_final_answer_instruction(payload: dict[str, Any]) -> str:
             "For ## 경고와 리스크, include every warning code and every image/runtime risk subject, with why it matters for Kubernetes migration.",
             "For ## 추가 결정사항, list unresolved operational inputs concretely; do not collapse them into vague examples.",
             "Use not_detected, partial, and unresolved as explicit status labels and explain them as missing evidence or open decisions.",
+            "Scope every negative claim to scanned repository facts; do not imply absence outside the analyzed repository content.",
             "Explain the structured workload profiles below: their fields are already grouped by workload, so do not reconstruct or reclassify workloads from scattered facts.",
             "For derived workload mappings, use '후보' or 'candidate' for derived workload mappings and phrase them as migration candidates.",
             "Allowed derived-workload phrasing: '<workload> 후보입니다', '<workload> candidate입니다', or '<workload>로 매핑할 수 있습니다'.",

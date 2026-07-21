@@ -894,5 +894,6 @@ def test_final_answer_instruction_prefers_workload_profiles():
     assert '"candidate_role":"workload_controller"' in serialized_profiles
     assert '"evidence_type":"component_source"' in serialized_profiles
     assert "structured workload profile facts from <workload_profiles>" in instruction
+    assert "Scope every negative claim to scanned repository facts" in instruction
     assert "infer" not in instruction.lower()
     assert "structured workload profiles" in instruction

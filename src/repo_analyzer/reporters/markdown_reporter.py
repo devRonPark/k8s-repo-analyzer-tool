@@ -145,7 +145,7 @@ def _workload_profile_block(out, profile: WorkloadProfile) -> None:
                 f"({relationship.relationship_type}, {relationship.confidence})"
             )
     else:
-        out("_No workload relationships detected._")
+        out("_No workload relationships detected in scanned repository facts._")
     out("")
 
     out("#### Unresolved decisions")
@@ -182,7 +182,7 @@ def _profile_facts(out, facts) -> None:
             out(f"- {label}: `{value}`")
             emitted = True
     if not emitted:
-        out("_No facts detected._")
+        out("_No profile facts detected in scanned repository facts._")
 
 
 def _profile_evidence(out, evidence) -> None:
