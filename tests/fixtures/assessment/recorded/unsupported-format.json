@@ -1,0 +1,27 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {"path": "app.run", "line_start": 1, "line_end": 20, "topics": ["application_identity", "runtime_profile"], "purpose": "Find the readable runtime entrypoint.", "method": "read_lines", "priority": "high"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:unsupported-plan", "attempt_count": 1, "response_mode": "recorded"}
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {"topic": "application_identity", "workload": "unknown-app", "status": "answered", "claims": [{"property_path": "name", "value": "unknown-app", "evidence_refs": ["E001"]}]},
+          {"topic": "runtime_profile", "workload": "unknown-app", "status": "answered", "claims": [{"property_path": "command", "value": ["/opt/unknown/bin/server"], "evidence_refs": ["E001"]}]},
+          {"topic": "config_and_secret", "workload": "unknown-app", "status": "unsupported", "unsupported_reason": "platform.binary.conf uses a proprietary format"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:unsupported-topics", "attempt_count": 1, "response_mode": "recorded"}
+    }
+  ]
+}

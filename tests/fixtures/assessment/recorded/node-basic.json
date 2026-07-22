@@ -46,7 +46,9 @@
             "workload": "api",
             "status": "answered",
             "claims": [
-              {"property_path": "name", "value": "api", "evidence_refs": ["E001"]}
+              {"property_path": "name", "value": "api", "evidence_refs": ["E001"]},
+              {"property_path": "language", "value": "javascript", "evidence_refs": ["E001"]},
+              {"property_path": "runtime", "value": "nodejs", "evidence_refs": ["E001"]}
             ]
           },
           {

@@ -89,7 +89,8 @@ def write_node_repository(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "src").mkdir()
     (root / "package.json").write_text(
-        '{"name":"api","scripts":{"start":"node src/server.js"}}\n',
+        '{"name":"api","scripts":{"build":"node --check src/server.js",'
+        '"start":"node src/server.js"}}\n',
         encoding="utf-8",
     )
     (root / "src" / "server.js").write_text(

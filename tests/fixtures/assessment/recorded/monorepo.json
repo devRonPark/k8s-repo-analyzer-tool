@@ -1,0 +1,29 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {"path": "api/package.json", "line_start": 1, "line_end": 80, "topics": ["application_identity", "runtime_profile"], "purpose": "Find the API workload.", "method": "parse_structured", "priority": "high"},
+          {"path": "worker/pyproject.toml", "line_start": 1, "line_end": 80, "topics": ["application_identity", "runtime_profile"], "purpose": "Find the worker workload.", "method": "parse_structured", "priority": "high"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:monorepo-plan", "attempt_count": 1, "response_mode": "recorded"}
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {"topic": "application_identity", "workload": "api", "status": "answered", "claims": [{"property_path": "name", "value": "api", "evidence_refs": ["E001"]}, {"property_path": "source_root", "value": "api", "evidence_refs": ["E001"]}, {"property_path": "language", "value": "javascript", "evidence_refs": ["E001"]}]},
+          {"topic": "runtime_profile", "workload": "api", "status": "answered", "claims": [{"property_path": "command", "value": ["node", "server.js"], "evidence_refs": ["E001"]}]},
+          {"topic": "application_identity", "workload": "worker", "status": "answered", "claims": [{"property_path": "name", "value": "worker", "evidence_refs": ["E002"]}, {"property_path": "source_root", "value": "worker", "evidence_refs": ["E002"]}, {"property_path": "language", "value": "python", "evidence_refs": ["E002"]}]},
+          {"topic": "runtime_profile", "workload": "worker", "status": "answered", "claims": [{"property_path": "command", "value": ["worker"], "evidence_refs": ["E002"]}]}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:monorepo-topics", "attempt_count": 1, "response_mode": "recorded"}
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {"path": "run.sh", "line_start": 1, "line_end": 40, "topics": ["runtime_profile", "entrypoint"], "purpose": "Find the process launch command.", "method": "read_lines", "priority": "high"},
+          {"path": "batch.service", "line_start": 1, "line_end": 40, "topics": ["runtime_profile"], "purpose": "Find working directory and service command.", "method": "read_lines", "priority": "high"},
+          {"path": ".env.example", "line_start": 1, "line_end": 40, "topics": ["config_and_secret"], "purpose": "Find runtime configuration key names.", "method": "read_lines", "priority": "medium"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:script-plan", "attempt_count": 1, "response_mode": "recorded"}
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {"topic": "application_identity", "workload": "batch", "status": "partial", "claims": [{"property_path": "process_type", "value": "background_worker", "evidence_refs": ["E002"]}]},
+          {"topic": "runtime_profile", "workload": "batch", "status": "answered", "claims": [{"property_path": "command", "value": ["/opt/app/run.sh"], "evidence_refs": ["E002"]}, {"property_path": "working_directory", "value": "/opt/app", "evidence_refs": ["E002"]}]},
+          {"topic": "entrypoint", "workload": "batch", "status": "answered", "claims": [{"property_path": "exec", "value": ["./batch", "--config", "/etc/batch/config.properties"], "evidence_refs": ["E001"]}]},
+          {"topic": "config_and_secret", "workload": "batch", "status": "partial", "claims": [{"property_path": "keys", "value": ["BATCH_QUEUE_URL", "BATCH_API_TOKEN"], "evidence_refs": ["E003"]}], "required_inputs": {"BATCH_API_TOKEN": {"reason": "secret_value_required_at_runtime", "needed_for": "worker_authentication"}}}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:script-topics", "attempt_count": 1, "response_mode": "recorded"}
+    }
+  ]
+}

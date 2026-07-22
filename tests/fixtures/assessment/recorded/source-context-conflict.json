@@ -1,0 +1,27 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {"path": "config/prod.properties", "line_start": 1, "line_end": 20, "topics": ["config_and_secret"], "purpose": "Find primary runtime configuration.", "method": "parse_structured", "priority": "high"},
+          {"path": "tests/config.properties", "line_start": 1, "line_end": 20, "topics": ["config_and_secret"], "purpose": "Classify test-only configuration.", "method": "parse_structured", "priority": "low"},
+          {"path": "examples/config.properties", "line_start": 1, "line_end": 20, "topics": ["config_and_secret"], "purpose": "Classify example-only configuration.", "method": "parse_structured", "priority": "low"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:context-plan", "attempt_count": 1, "response_mode": "recorded"}
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {"topic": "config_and_secret", "workload": "app", "status": "answered", "claims": [{"property_path": "mode", "value": "production", "evidence_refs": ["E001"]}, {"property_path": "mode", "value": "test", "evidence_refs": ["E002"]}, {"property_path": "mode", "value": "example", "evidence_refs": ["E003"]}]}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:context-topics", "attempt_count": 1, "response_mode": "recorded"}
+    }
+  ]
+}

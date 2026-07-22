@@ -1,0 +1,31 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {"path": "pom.xml", "line_start": 1, "line_end": 40, "topics": ["application_identity", "build_profile", "artifact_profile"], "purpose": "Find Maven build and packaging.", "method": "parse_structured", "priority": "high"},
+          {"path": "src/main/webapp/WEB-INF/web.xml", "line_start": 1, "line_end": 40, "topics": ["runtime_profile"], "purpose": "Find servlet application identity.", "method": "parse_structured", "priority": "high"},
+          {"path": "src/main/resources/application.properties", "line_start": 1, "line_end": 40, "topics": ["dependencies", "config_and_secret"], "purpose": "Find runtime configuration and dependency endpoint keys.", "method": "parse_structured", "priority": "high"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:java-plan", "attempt_count": 1, "response_mode": "recorded"}
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {"topic": "application_identity", "workload": "legacy-web", "status": "answered", "claims": [{"property_path": "name", "value": "legacy-web", "evidence_refs": ["E001"]}, {"property_path": "language", "value": "java", "evidence_refs": ["E001"]}]},
+          {"topic": "build_profile", "workload": "legacy-web", "status": "answered", "claims": [{"property_path": "tool", "value": "maven", "evidence_refs": ["E001"]}, {"property_path": "command", "value": ["./mvnw", "package"], "evidence_refs": ["E001"]}]},
+          {"topic": "artifact_profile", "workload": "legacy-web", "status": "answered", "claims": [{"property_path": "artifact", "value": {"type": "war", "path": "target/legacy-web.war"}, "evidence_refs": ["E001"]}]},
+          {"topic": "runtime_profile", "workload": "legacy-web", "status": "partial", "claims": [{"property_path": "application_server", "value": "external_servlet_container", "evidence_refs": ["E002"]}], "required_inputs": {"runtime.container_image": {"reason": "external_runtime_not_declared", "needed_for": "workload_image"}}},
+          {"topic": "dependencies", "workload": "legacy-web", "status": "partial", "claims": [{"property_path": "database.endpoint_config", "value": "DATABASE_URL", "evidence_refs": ["E003"]}], "required_inputs": {"database.endpoint": {"reason": "runtime_environment_required", "needed_for": "database_connection"}}}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:java-topics", "attempt_count": 1, "response_mode": "recorded"}
+    }
+  ]
+}

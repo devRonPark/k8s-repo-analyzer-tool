@@ -1,0 +1,26 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {"path": "README.md", "line_start": 1, "line_end": 20, "topics": ["networking"], "purpose": "Check documented listener port.", "method": "read_lines", "priority": "medium"},
+          {"path": "runtime.properties", "line_start": 1, "line_end": 20, "topics": ["networking"], "purpose": "Check primary runtime listener port.", "method": "parse_structured", "priority": "high"}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:conflict-plan", "attempt_count": 1, "response_mode": "recorded"}
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {"topic": "networking", "workload": "app", "status": "answered", "claims": [{"property_path": "port", "value": 8080, "evidence_refs": ["E001"]}, {"property_path": "port", "value": 9090, "evidence_refs": ["E002"]}]}
+        ]
+      },
+      "metadata": {"endpoint": "recorded", "model": "fixture-model", "prompt_version": "assessment-prompts/v1", "response_digest": "sha256:conflict-topics", "attempt_count": 1, "response_mode": "recorded"}
+    }
+  ]
+}
