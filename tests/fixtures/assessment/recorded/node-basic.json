@@ -1,0 +1,110 @@
+{
+  "responses": [
+    {
+      "stage": "analysis_plan",
+      "schema_name": "AnalysisPlan",
+      "value": {
+        "round": 1,
+        "targets": [
+          {
+            "path": "package.json",
+            "line_start": 1,
+            "line_end": 80,
+            "topics": ["application_identity", "build_profile", "runtime_profile"],
+            "purpose": "Find package identity and start script.",
+            "method": "parse_structured",
+            "priority": "high"
+          },
+          {
+            "path": "src/server.js",
+            "line_start": 1,
+            "line_end": 120,
+            "topics": ["entrypoint", "networking"],
+            "purpose": "Find listener port and bind address.",
+            "method": "read_lines",
+            "priority": "high"
+          }
+        ],
+        "searches": []
+      },
+      "metadata": {
+        "endpoint": "recorded",
+        "model": "fixture-model",
+        "prompt_version": "assessment-prompts/v1",
+        "response_digest": "sha256:plan-node-basic",
+        "attempt_count": 1,
+        "response_mode": "recorded"
+      }
+    },
+    {
+      "stage": "topic_analysis",
+      "schema_name": "TopicAnalysisBatch",
+      "value": {
+        "topics": [
+          {
+            "topic": "application_identity",
+            "workload": "api",
+            "status": "answered",
+            "claims": [
+              {"property_path": "name", "value": "api", "evidence_refs": ["E001"]}
+            ]
+          },
+          {
+            "topic": "build_profile",
+            "workload": "api",
+            "status": "answered",
+            "claims": [
+              {"property_path": "tool", "value": "npm", "evidence_refs": ["E001"]},
+              {"property_path": "command", "value": ["npm", "run", "build"], "evidence_refs": ["E001"]}
+            ]
+          },
+          {
+            "topic": "runtime_profile",
+            "workload": "api",
+            "status": "answered",
+            "claims": [
+              {"property_path": "command", "value": ["node"], "evidence_refs": ["E001"]},
+              {"property_path": "args", "value": ["src/server.js"], "evidence_refs": ["E001"]}
+            ]
+          },
+          {
+            "topic": "networking",
+            "workload": "api",
+            "status": "answered",
+            "claims": [
+              {
+                "property_path": "listeners",
+                "value": [{"name": "http", "port": 3000, "transport": "TCP", "application_protocol": "http", "bind_address": "0.0.0.0"}],
+                "evidence_refs": ["E002"]
+              }
+            ],
+            "kubernetes_candidates": {
+              "service": {"type": "ClusterIP", "port": 80, "target_port": 3000}
+            }
+          },
+          {
+            "topic": "unknowns",
+            "workload": "api",
+            "status": "unresolved",
+            "required_inputs": {
+              "resources.cpu_request": {
+                "reason": "runtime_measurement_required",
+                "needed_for": "pod_resources"
+              }
+            }
+          }
+        ],
+        "needs_more_evidence": false,
+        "gap_topics": []
+      },
+      "metadata": {
+        "endpoint": "recorded",
+        "model": "fixture-model",
+        "prompt_version": "assessment-prompts/v1",
+        "response_digest": "sha256:topics-node-basic",
+        "attempt_count": 1,
+        "response_mode": "recorded"
+      }
+    }
+  ]
+}

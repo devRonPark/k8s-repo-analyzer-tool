@@ -186,6 +186,8 @@ class TopicResult(ContractModel):
 
 class TopicAnalysisBatch(ContractModel):
     topics: list[TopicResult]
+    needs_more_evidence: bool = False
+    gap_topics: list[str] = Field(default_factory=list)
 
 
 class ConfidenceFactors(ContractModel):
@@ -302,6 +304,9 @@ class AssessmentRun(ContractModel):
     request: AssessmentRequest
     resolved_revision: str
     result: AssessmentResult | None
+    scan: RepositoryScan | None = None
+    plans: list[ValidatedPlan] = Field(default_factory=list)
+    checked_topics: list[CheckedTopicResult] = Field(default_factory=list)
     evidence: list[EvidenceItem] = Field(default_factory=list)
     events: list[RunEvent] = Field(default_factory=list)
     limits_used: dict[str, int] = Field(default_factory=dict)

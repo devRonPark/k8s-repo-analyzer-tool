@@ -1,5 +1,6 @@
-"""Runtime-independent contracts for repository assessment."""
+"""Runtime-independent interface for repository assessment."""
 
 from .contracts import AssessmentRequest, AssessmentRun
+from .engine import assess
 
-__all__ = ["AssessmentRequest", "AssessmentRun"]
+__all__ = ["AssessmentRequest", "AssessmentRun", "assess"]
