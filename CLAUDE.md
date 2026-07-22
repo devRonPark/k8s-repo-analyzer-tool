@@ -1,14 +1,26 @@
 # CLAUDE.md
 
-Project memory for **k8s-repo-analyze-agent** (`repo-analyzer`).
+Project memory for **repository-assessment** and its compatibility analyzer.
 
 ## What this project is
 
-A **deterministic** tool that reads an application source repository and emits the
-**P0 structural context** an engineer needs to start a Kubernetes migration. Same
-repository content → **byte-identical JSON**. Facts are extracted by Python
-parsers with source-line evidence; **no LLM inspects the repo**. An Agent Skill is
-only a thin layer that detects intent, calls the tool, and explains the result.
+The product direction is an **LLM-orchestrated, evidence-checked repository
+assessment** for Kubernetes migration. The LLM selects bounded evidence and
+analyzes small topics; deterministic repository tools read only selected targets;
+the evidence checker verifies every claim against current file bytes and lines.
+The runtime-independent engine writes four versioned artifacts and never invents
+operational defaults.
+
+Use the simple public terms in
+`docs/superpowers/specs/2026-07-22-llm-kubernetes-assessment-design.md`:
+Repository scan, Analysis plan, Evidence extraction, Analysis topic, Topic status,
+Evidence check, Report building, Required input, Run limits, Assessment engine.
+
+## Compatibility analyzer
+
+`repo-analyzer analyze` remains a deterministic compatibility path for existing
+automation and supported stack fixtures. The following stack-specific rules and
+invariants belong to that compatibility package, not to the new product boundary.
 
 Only the `kubernetes-p0` profile exists. Three stack families are supported:
 compose/Dockerfile stacks (FastAPI-style); **Maven / Java web applications**
@@ -21,7 +33,7 @@ overridable via `--build-system {auto,gradle,maven}`), never "the first pom.xml"
 generation, resource sizing, replica/PVC/HPA/PDB/StorageClass/IngressClass
 decisions, full business-code or security analysis, P1/P2 depth.
 
-## Core invariants (do not break)
+## Compatibility invariants (do not break)
 
 - **Deterministic output.** No timestamps, durations, temp/absolute paths, random
   IDs, or unordered sets in results. Paths are repo-relative POSIX. Every list is
@@ -41,7 +53,7 @@ decisions, full business-code or security analysis, P1/P2 depth.
 - **Never silently ignore unsupported syntax.** Record a `ParseIssue` →
   `warnings` / `unsupported_constructs`.
 
-## Architecture (one-way, no cycles)
+## Compatibility architecture (one-way, no cycles)
 
 ```
 inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring_boot}  ->  models  ->  reporters
@@ -97,7 +109,13 @@ inventory  ->  parsers  ->  rules/{kubernetes_p0,build_system,java_webapp,spring
 
 ## Entry points
 
-- **CLI:** `repo-analyzer analyze` → `src/repo_analyzer/cli.py:main` (argparse).
+- **Assessment CLI:** `repository-assessment assess` →
+  `src/repository_assessment/cli.py:main`.
+- **Assessment engine:**
+  `repository_assessment.engine.assess(request, model_client, repository_tools, event_sink)`.
+- **OpenShell adapter:** `integrations/openshell_assessment.py`; OpenShell is the
+  sandbox runtime and uses `openshell/policy.yaml` schema v1.
+- **Compatibility CLI:** `repo-analyzer analyze` → `src/repo_analyzer/cli.py:main`.
 - **Library:** `repo_analyzer.analyzer.analyze_repository(repository_path, profile="kubernetes-p0", git_ref=None) -> AnalysisResult`.
 - **Runtime-agnostic wrapper:** `integrations/tool.py:analyze_repository(...) -> dict`
   returns `{"ok": True, "analysis": {...}}` or `{"ok": False, "error": {...}}`
@@ -137,7 +155,12 @@ The library signature is
 
 ```bash
 uv sync                                   # Python >=3.12, deps: pydantic, ruamel.yaml
-uv run pytest                             # 180 tests, fully offline
+uv run --offline pytest                   # fully offline
+uv run --offline repository-assessment assess \
+  --repo tests/fixtures/assessment/node-basic \
+  --output-dir ./output/assessment-node-basic \
+  --recorded-responses tests/fixtures/assessment/recorded/node-basic.json
+# Compatibility analyzer:
 uv run repo-analyzer analyze \
   --repo tests/fixtures/full-stack-fastapi \
   --profile kubernetes-p0 \
@@ -182,13 +205,14 @@ relevant directory's `CLAUDE.md` instead of scanning the entire codebase.
 
 | Directory | CLAUDE.md | What it covers |
 |---|---|---|
+| `src/repository_assessment/` | — | Assessment contracts, engine, repository tools, model adapter, evidence checker, writers, and CLI |
 | `src/repo_analyzer/` | [`src/repo_analyzer/CLAUDE.md`](src/repo_analyzer/CLAUDE.md) | Core package — analyzer, CLI, inventory, models, sub-packages |
 | `src/repo_analyzer/parsers/` | [`src/repo_analyzer/parsers/CLAUDE.md`](src/repo_analyzer/parsers/CLAUDE.md) | Per-format parsers (Compose, Dockerfile, dotenv, Nginx, Python AST, Maven, web.xml, Spring XML) |
 | `src/repo_analyzer/reporters/` | [`src/repo_analyzer/reporters/CLAUDE.md`](src/repo_analyzer/reporters/CLAUDE.md) | JSON and Markdown output formatters |
 | `src/repo_analyzer/rules/` | [`src/repo_analyzer/rules/CLAUDE.md`](src/repo_analyzer/rules/CLAUDE.md) | Pure rule engine (`kubernetes_p0.py`, `java_webapp.py`) |
 | `tests/` | [`tests/CLAUDE.md`](tests/CLAUDE.md) | Test files, fixtures, coverage map |
 | `integrations/` | [`integrations/CLAUDE.md`](integrations/CLAUDE.md) | Runtime-agnostic tool wrapper and schema |
-| `docs/` | [`docs/CLAUDE.md`](docs/CLAUDE.md) | Operational docs (troubleshooting) |
+| `docs/` | [`docs/CLAUDE.md`](docs/CLAUDE.md) | Assessment, ADR, research, plans, and troubleshooting docs |
 | `examples/` | [`examples/CLAUDE.md`](examples/CLAUDE.md) | Committed reference outputs (golden JSON + report) |
 | `skills/` | [`skills/CLAUDE.md`](skills/CLAUDE.md) | Agent Skill definitions |
 

@@ -1,23 +1,17 @@
 ---
 name: kubernetes-repository-analyzer
 description: >-
-  Analyze an application source repository to prepare for a Kubernetes migration.
-  Use this skill when the user wants to understand a repo's structure before
-  writing Kubernetes manifests — components, images/Dockerfiles, ports,
-  environment variables, Secret candidates, storage, health checks, startup
-  order, and which operational values cannot be decided from the repo. Trigger on
-  intents like: "이 레포를 Kubernetes로 이관하기 위해 분석해줘",
-  "analyze this repo for Kubernetes migration", "이 애플리케이션을 RKE2에 올리려면
-  무엇이 필요한가?", "이 소스가 Rancher 위에서 실행 가능한지 분석해줘", "Docker
-  Compose 구조를 Kubernetes workload로 정리해줘", "Kubernetes manifest를 만들기
-  전에 레포 구조를 점검해줘", "이 레포의 포트, 환경 변수, Secret, storage를 찾아줘",
-  or the explicit command "/analyze-k8s-repo <repository-path>". Do NOT trigger
-  for: explaining a single Dockerfile's syntax, general Kubernetes concept
-  questions, refactoring application code, or reviewing already-generated
-  Kubernetes YAML.
+  Use when existing automation explicitly requires the deterministic repo-analyzer
+  compatibility workflow for Kubernetes migration analysis, or the user invokes
+  "/analyze-k8s-repo PATH". Do not use for new general repository assessments,
+  Dockerfile syntax, Kubernetes concepts, application refactoring, or manifest review.
 ---
 
 # Kubernetes Repository Analyzer
+
+This is the **compatibility skill** for the legacy `repo-analyzer analyze`
+workflow. Use the `repository-assessment assess` product path for new repository
+assessment work; do not silently substitute this skill for it.
 
 This skill is a **thin wrapper** around a deterministic Python analysis tool. It
 does not read or reason about repository files itself. Its only job is to detect
@@ -27,9 +21,9 @@ tool's JSON. You must not add Kubernetes "facts" the tool did not return.
 
 ## When to run
 
-Run the analyzer when the user asks to prepare, assess, or inventory a code
-repository for a Kubernetes / RKE2 / Rancher migration, or when they explicitly
-type `/analyze-k8s-repo <repository-path>`.
+Run the analyzer only when the user explicitly requests the compatibility analyzer
+or types `/analyze-k8s-repo <repository-path>`. For a new general Kubernetes
+repository assessment, direct the user to `repository-assessment assess` instead.
 
 Do **not** run it for: single-Dockerfile syntax questions, generic Kubernetes
 concept questions, application code refactoring, or reviews of already-written

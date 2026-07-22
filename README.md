@@ -1,4 +1,25 @@
-# repo-analyzer — Kubernetes P0 레포지토리 분석기
+# repository-assessment — LLM 주도 Kubernetes 저장소 평가
+
+이 프로젝트의 주 제품 경로는 LLM이 분석 계획과 주제별 해석을 맡고, 제한된 읽기 전용
+도구가 선택된 파일에서 근거를 수집하며, 최종 주장을 파일·줄과 대조하는 Kubernetes 이관
+평가입니다. 언어나 프레임워크를 미리 가정하지 않고, Dockerfile이나 Compose가 없는
+레거시 저장소의 부족한 정보도 명시적인 required input으로 남깁니다.
+
+```bash
+uv run repository-assessment assess \
+  --repo ./target-repository \
+  --output-dir ./output/assessment \
+  --base-url http://127.0.0.1:30000/v1 \
+  --model Qwen/Qwen3-Coder-30B-A3B-Instruct
+```
+
+사용법, 네 가지 산출물, 상태와 제한, OpenShell 실행 방법은
+[`docs/ASSESSMENT.md`](./docs/ASSESSMENT.md)를 참고하세요.
+
+## Deterministic analyzer compatibility 경로
+
+`repo-analyzer analyze`는 기존 자동화와 golden fixture를 위한 compatibility 경로로 계속
+지원됩니다. 아래 설명과 명령은 이 레거시 분석기에만 적용됩니다.
 
 애플리케이션 소스 레포지토리를 읽어, 엔지니어가 Kubernetes 이관을 시작하는 데 필요한
 **P0 수준의 구조적 맥락**을 산출하는 **결정적(deterministic)** 도구입니다.

@@ -4,7 +4,13 @@ Date: 2026-07-21
 
 ## Status
 
-Accepted
+Superseded by ADR 0002
+
+On 2026-07-22 this direction was superseded. Current official OpenShell is used as
+a sandbox runtime created with `openshell sandbox create` and configured with a
+schema-v1 policy. The obsolete repository-owned custom package manifest assumption
+described below was not implemented. The remaining text is preserved as historical
+context.
 
 ## Context
 

@@ -2,6 +2,15 @@
 
 All tests run fully offline — no network access.
 
+## Assessment tests
+
+`tests/assessment/` covers strict contracts, bounded read-only repository tools,
+plan and evidence validation, recorded and OpenAI-compatible model clients, the
+assessment engine, deterministic writers, CLI/OpenShell adapters, documentation
+contracts, and eight required repository scenarios. Its fixtures live under
+`tests/fixtures/assessment/`; recorded model responses make every test replayable
+without network or a live model.
+
 ## Files
 
 | File | Lines | Role |
