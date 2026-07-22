@@ -512,7 +512,10 @@ def _normal_path(path: str) -> str:
 
 
 def _source_context(path: str) -> SourceContext:
-    parts = {part.lower() for part in PurePosixPath(path).parts}
+    pure = PurePosixPath(path)
+    if pure.name.lower().startswith(("readme", "contributing", "changelog")):
+        return "documentation"
+    parts = {part.lower() for part in pure.parts}
     for context, names in SOURCE_CONTEXT_PARTS:
         if parts & names:
             return context
