@@ -38,6 +38,7 @@ from .ports import (
     StructuredModelClient,
 )
 from .prompts import BASE_TOPICS, build_plan_request, build_topic_request
+from .run_control import RunCancelled, RunControl, RunDeadlineExceeded, RunQuotaExceeded
 
 _STATUS_ORDER = {
     "answered": 0,
@@ -73,7 +74,7 @@ class FatalAssessmentError(RuntimeError):
 class _RunState:
     request: AssessmentRequest
     event_sink: EventSink
-    started: float = field(default_factory=lambda: time.monotonic())
+    control: RunControl = field(init=False)
     sequence: int = 0
     model_calls: int = 0
     plan_rounds: int = 0
@@ -86,10 +87,19 @@ class _RunState:
     errors: list[dict[str, str]] = field(default_factory=list)
 
     def guard(self) -> None:
-        if self.event_sink.is_cancelled():
-            raise FatalAssessmentError("cancelled", "assessment was cancelled")
-        if time.monotonic() - self.started > self.request.limits.total_seconds:
-            raise FatalAssessmentError("total_timeout", "total run time limit was exceeded")
+        try:
+            self.control.guard()
+        except RunCancelled as exc:
+            raise FatalAssessmentError("cancelled", str(exc)) from exc
+        except RunDeadlineExceeded as exc:
+            raise FatalAssessmentError("total_timeout", str(exc)) from exc
+
+    def __post_init__(self) -> None:
+        self.control = RunControl(
+            self.request.limits,
+            clock=time.monotonic,
+            cancelled=self.event_sink.is_cancelled,
+        )
 
     def emit(self, stage: str, kind: str, detail: dict[str, Any] | None = None) -> None:
         self.sequence += 1
@@ -109,9 +119,11 @@ class _RunState:
         response_model,
     ):
         self.guard()
-        if self.model_calls >= self.request.limits.model_calls:
-            raise RepositoryLimitError("model_calls limit exhausted")
-        self.model_calls += 1
+        try:
+            self.control.reserve_model_call()
+        except RunQuotaExceeded as exc:
+            raise RepositoryLimitError(str(exc)) from exc
+        self.model_calls = self.control.model_calls
         completion = client.complete(request, response_model)
         self.metadata.append(completion.metadata)
         return completion.value
