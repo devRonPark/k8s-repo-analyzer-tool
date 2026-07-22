@@ -11,6 +11,7 @@ dependencies = [
 
 [project.scripts]
 repo-analyzer = "repo_analyzer.cli:main"
+repository-assessment = "repository_assessment.cli:main"
 
 [dependency-groups]
 dev = [

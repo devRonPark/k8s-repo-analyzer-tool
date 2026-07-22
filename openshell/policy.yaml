@@ -1,0 +1,22 @@
+version: 1
+
+filesystem_policy:
+  include_workdir: false
+  read_only:
+    - /usr
+    - /lib
+    - /etc
+    - /app
+    - /sandbox/repository
+  read_write:
+    - /sandbox/output
+    - /tmp
+
+landlock:
+  compatibility: hard_requirement
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+
+network_policies: {}
