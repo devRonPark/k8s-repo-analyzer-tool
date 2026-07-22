@@ -26,6 +26,7 @@ from .contracts import (
     ToolObservation,
     UsageSnapshot,
 )
+from .ports import RepositoryAccessError, RepositoryLimitError, RepositoryToolError
 
 EXCLUDED_DIRS = frozenset(
     {
@@ -59,18 +60,6 @@ _JSON_SECRET = re.compile(
     r'(?i)("[^"\\]*(?:password|passwd|secret|token|api[_-]?key|private[_-]?key|credential)[^"\\]*"\s*:\s*)'
     r'("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?|true|false|null)'
 )
-
-
-class RepositoryToolError(RuntimeError):
-    """Base class for narrow repository-tool failures."""
-
-
-class RepositoryAccessError(RepositoryToolError):
-    """Raised when a target cannot be accessed safely."""
-
-
-class RepositoryLimitError(RepositoryToolError):
-    """Raised when a configured repository-tool limit is exhausted."""
 
 
 class UnsupportedFormatError(RepositoryToolError):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from repository_assessment.contracts import (
@@ -24,6 +25,19 @@ from tests.assessment.fakes import (
 
 
 RECORDED = Path("tests/fixtures/assessment/recorded/node-basic.json")
+
+
+def test_engine_imports_only_provider_neutral_model_contracts() -> None:
+    source = Path("src/repository_assessment/engine.py").read_text(encoding="utf-8")
+    imported_modules = {
+        node.module
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+
+    assert not imported_modules.intersection(
+        {"openai_compatible", "recorded", "repository"}
+    )
 
 
 def test_assess_runs_stages_and_reads_only_selected_targets(tmp_path: Path) -> None:

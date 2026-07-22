@@ -14,11 +14,12 @@ from .contracts import (
     RecordedCompletion,
     RecordedCompletionFile,
 )
+from .ports import ModelProtocolError
 
 TModel = TypeVar("TModel", bound=BaseModel)
 
 
-class RecordedResponseMismatch(RuntimeError):
+class RecordedResponseMismatch(ModelProtocolError):
     """Raised when a replay fixture does not match the requested completion."""
 
 

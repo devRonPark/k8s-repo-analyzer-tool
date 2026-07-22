@@ -26,16 +26,18 @@ from .contracts import (
     ValidatedPlan,
 )
 from .evidence import check_topics, validate_plan
-from .openai_compatible import (
-    ModelClientError,
+from .ports import (
+    EventSink,
     ModelProtocolError,
     ModelSchemaError,
     ModelUnavailableError,
+    RepositoryAccessError,
+    RepositoryLimitError,
+    RepositoryToolError,
+    RepositoryTools,
+    StructuredModelClient,
 )
-from .ports import EventSink, RepositoryTools, StructuredModelClient
 from .prompts import BASE_TOPICS, build_plan_request, build_topic_request
-from .recorded import RecordedResponseMismatch
-from .repository import RepositoryAccessError, RepositoryLimitError, RepositoryToolError
 
 _STATUS_ORDER = {
     "answered": 0,
@@ -182,7 +184,7 @@ def _run_model_rounds(
             _record_error(state, "model_calls_limit_exhausted", str(exc))
             state.emit("analysis_plan", "failed", {"round": round_number})
             break
-        except (ModelProtocolError, ModelSchemaError, RecordedResponseMismatch) as exc:
+        except (ModelProtocolError, ModelSchemaError) as exc:
             _record_error(state, "analysis_plan_invalid", str(exc))
             state.emit("analysis_plan", "failed", {"round": round_number})
             break
@@ -267,7 +269,7 @@ def _analyze_topics(
         _record_error(state, "model_calls_limit_exhausted", str(exc))
         state.emit("topic_analysis", "failed", {"round": state.plan_rounds})
         return None
-    except (ModelProtocolError, ModelSchemaError, RecordedResponseMismatch) as exc:
+    except (ModelProtocolError, ModelSchemaError) as exc:
         _record_error(state, "topic_analysis_invalid", str(exc))
         state.emit("topic_analysis", "failed", {"round": state.plan_rounds})
         return None

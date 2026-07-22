@@ -18,24 +18,14 @@ from .contracts import (
     ModelResponseMetadata,
     PROMPT_VERSION,
 )
+from .ports import (
+    ModelClientError,
+    ModelProtocolError,
+    ModelSchemaError,
+    ModelUnavailableError,
+)
 
 TModel = TypeVar("TModel", bound=BaseModel)
-
-
-class ModelClientError(RuntimeError):
-    """Base class for narrow structured-model failures."""
-
-
-class ModelUnavailableError(ModelClientError):
-    """Raised when the configured endpoint cannot be reached."""
-
-
-class ModelProtocolError(ModelClientError):
-    """Raised when the endpoint returns an invalid Chat Completions envelope."""
-
-
-class ModelSchemaError(ModelClientError):
-    """Raised when model content cannot satisfy the requested schema."""
 
 
 class OpenAICompatibleModelClient:

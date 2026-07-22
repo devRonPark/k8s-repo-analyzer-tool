@@ -17,6 +17,34 @@ from .contracts import (
 TModel = TypeVar("TModel", bound=BaseModel)
 
 
+class ModelClientError(RuntimeError):
+    """Base class for structured-model failures exposed to the engine."""
+
+
+class ModelUnavailableError(ModelClientError):
+    """Raised when a structured-model client cannot serve a request."""
+
+
+class ModelProtocolError(ModelClientError):
+    """Raised when a structured-model response violates its protocol."""
+
+
+class ModelSchemaError(ModelClientError):
+    """Raised when model content cannot satisfy the requested schema."""
+
+
+class RepositoryToolError(RuntimeError):
+    """Base class for repository-tool failures exposed to the engine."""
+
+
+class RepositoryAccessError(RepositoryToolError):
+    """Raised when a repository target cannot be accessed safely."""
+
+
+class RepositoryLimitError(RepositoryToolError):
+    """Raised when a repository-tool or engine limit is exhausted."""
+
+
 class StructuredModelClient(Protocol):
     def complete(
         self, request: ModelRequest, response_model: type[TModel]

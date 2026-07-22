@@ -25,8 +25,8 @@ from .contracts import (
     TopicResult,
     ValidatedPlan,
 )
-from .ports import RepositoryTools
-from .repository import RepositoryToolError, SECRET_NAME
+from .ports import RepositoryToolError, RepositoryTools
+from .repository import SECRET_NAME
 
 _STRUCTURED_SUFFIXES = (".json", ".yaml", ".yml", ".xml", ".toml", ".properties")
 _NON_PRODUCTION_CONTEXTS = {"test", "example", "development", "generated"}
