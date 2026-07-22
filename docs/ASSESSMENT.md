@@ -33,20 +33,21 @@ UV_CACHE_DIR=.uv-cache uv run --offline repository-assessment assess \
 ## OpenShell 실행
 
 OpenShell은 저장소 안에 별도 에이전트 패키지를 정의하는 방식이 아니라, CLI를 격리해
-실행하는 샌드박스 런타임입니다. 샌드박스를 만들고 이 저장소의 schema-v1 정책을
-적용한 뒤 연결합니다.
+실행하는 샌드박스 런타임입니다. 평가 CLI가 설치되고 `/app`, `/sandbox/repository`,
+`/sandbox/output`이 준비된 런타임 이미지를 사용합니다. filesystem과 process 정책은
+정적이므로 이 저장소의 schema-v1 정책을 샌드박스 생성 시 적용해야 합니다.
 
 ```bash
-openshell sandbox create --name repository-assessment
-openshell policy set repository-assessment --policy openshell/policy.yaml
-openshell sandbox connect repository-assessment
+openshell sandbox create --policy openshell/policy.yaml --name repository-assessment -- repository-assessment --help
 ```
 
-샌드박스 안에서는 저장소를 `/sandbox/repository`에 읽기 전용으로, 출력 디렉터리를
-`/sandbox/output`에 쓰기 가능으로 제공하고 다음 CLI를 실행합니다.
+컴퓨트 드라이버나 런타임 이미지가 평가 대상을 `/sandbox/repository`에 읽기 전용으로,
+출력 디렉터리를 `/sandbox/output`에 쓰기 가능으로 제공한 상태에서 one-shot 명령을
+실행합니다.
 
 ```bash
-uv run repository-assessment assess \
+openshell sandbox exec -n repository-assessment -- \
+  repository-assessment assess \
   --repo /sandbox/repository \
   --output-dir /sandbox/output \
   --base-url https://inference.local/v1 \

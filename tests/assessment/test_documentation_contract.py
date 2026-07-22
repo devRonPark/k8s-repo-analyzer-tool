@@ -11,6 +11,11 @@ def test_assessment_docs_match_public_contract() -> None:
     assert "run-log.json" in text
     assert "completed_with_gaps" in text
     assert "https://inference.local/v1" in text
+    assert (
+        "openshell sandbox create --policy openshell/policy.yaml "
+        "--name repository-assessment -- repository-assessment --help"
+    ) in text
+    assert "openshell sandbox exec -n repository-assessment" in text
     assert "agent.yaml" not in text
     assert "readiness score" not in text.lower()
 
