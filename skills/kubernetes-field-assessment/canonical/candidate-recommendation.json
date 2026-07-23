@@ -1,0 +1,54 @@
+{
+  "schema_version": "application-candidate-recommendation/v1",
+  "scan_policy": {
+    "stage": "cheap_repository_scan",
+    "model_repository_text": false,
+    "allowed_inputs": [
+      "path",
+      "file_kind",
+      "file_size",
+      "source_context",
+      "manifest_metadata",
+      "package_metadata"
+    ],
+    "forbidden_inputs": [
+      "full_repository_text",
+      "file_contents",
+      "binary_contents",
+      "secrets"
+    ],
+    "scan_targets": [
+      "entrypoint files",
+      "build manifests",
+      "container manifests",
+      "runtime configuration names",
+      "scheduler declarations"
+    ]
+  },
+  "candidate_fields": [
+    "id",
+    "display_name",
+    "candidate_kind",
+    "source_paths",
+    "evidence_summary",
+    "recommendation_reason",
+    "confidence",
+    "recommended"
+  ],
+  "presentation": {
+    "required_choice_fields": [
+      "display_name",
+      "evidence_summary",
+      "recommendation_reason"
+    ],
+    "recommended_marker": "추천",
+    "empty_state": "실행 대상 후보를 자동으로 좁히지 못했습니다."
+  },
+  "selection_behavior": {
+    "enter_selects_recommended": true,
+    "number_selects_candidate": true,
+    "multiple_candidates_supported": true,
+    "direct_input_allowed": true,
+    "direct_input_requires_normalization": true
+  }
+}

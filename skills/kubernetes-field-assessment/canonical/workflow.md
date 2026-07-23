@@ -26,6 +26,9 @@ settings.
    unknowns, conflicts, and migration risks.
 7. Write the Migration Diagnosis Package with an evidence appendix.
 
+The concrete candidate recommendation contract lives in
+`canonical/candidate-recommendation.json`.
+
 ## Runtime Adapter Rule
 
 Adapters for specific agent runtimes must refer back to `canonical/` files. They

@@ -12,6 +12,9 @@ Before acting, read:
 - `../../canonical/workflow.md`
 - `../../canonical/evidence-rules.md`
 - `../../canonical/intake.md`
+- `../../canonical/intake-card.json`
+- `../../canonical/candidate-recommendation.md`
+- `../../canonical/candidate-recommendation.json`
 - `../../canonical/diagnosis-package-rubric.md`
 - `../../canonical/validation.md`
 
