@@ -17,9 +17,10 @@ Before acting, read:
 - `../../canonical/candidate-recommendation.json`
 - `../../canonical/confirmed-scope-evidence-result.md`
 - `../../canonical/confirmed-scope-evidence-result.json`
+- `../../canonical/migration-diagnosis-package.json`
 - `../../canonical/diagnosis-package-rubric.md`
 - `../../canonical/validation.md`
 
 This adapter may only supply Codex trigger metadata. It must preserve Evidence Result
 semantics, Secret masking, no-invention behavior, and the Migration
-Diagnosis Package rubric from the canonical package.
+Diagnosis Package contract and rubric from the canonical package.

@@ -17,3 +17,5 @@ appendices.
 - evidence appendix with file and line references or Evidence Result IDs.
 
 The package must not add claims that are absent from the Evidence Result.
+The machine-readable section and traceability contract lives in
+`canonical/migration-diagnosis-package.json`.

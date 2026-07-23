@@ -866,6 +866,302 @@ def test_evidence_result_keeps_repository_unknowns_as_required_inputs_without_in
     ]
 
 
+def test_migration_diagnosis_package_contract_defines_field_sections_and_traceability() -> None:
+    validator = _load_validator()
+
+    contract = validator.load_migration_diagnosis_package(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    assert contract["schema_version"] == "migration-diagnosis-package/v1"
+    diagnosis = contract["diagnosis_package"]
+    assert {
+        "analysis_target",
+        "source_confirmed_facts",
+        "required_inputs",
+        "migration_risks",
+        "input_source_conflicts",
+        "follow_up_questions",
+        "evidence_appendix",
+    } <= set(diagnosis["required_sections"])
+    assert diagnosis["field_language"]["audience"] == [
+        "kubernetes_migration_engineer",
+        "customer_or_application_team",
+    ]
+    assert diagnosis["field_language"]["internal_terms_only_in"] == [
+        "evidence_appendix"
+    ]
+    assert diagnosis["traceability"]["major_judgments_require_reference"] is True
+    assert {
+        "source_fact_id",
+        "user_context_id",
+        "required_input_id",
+        "conflict_id",
+        "evidence_ref",
+        "evidence_result_ref",
+    } <= set(diagnosis["traceability"]["allowed_reference_fields"])
+    assert {
+        "id",
+        "ask_to",
+        "question",
+        "why_needed",
+    } <= set(contract["follow_up_question_contract"]["required_fields"])
+    assert {
+        "source_required_input_id",
+        "source_conflict_id",
+    } <= set(contract["follow_up_question_contract"]["reference_fields"])
+    assert {
+        "manifest_generation",
+        "replica_guess",
+        "resource_sizing_guess",
+        "secret_value_output",
+    } <= set(contract["non_goals"])
+
+
+def test_migration_diagnosis_package_builds_field_report_from_evidence_result() -> None:
+    validator = _load_validator()
+    contract = validator.load_migration_diagnosis_package(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    package = validator.build_migration_diagnosis_package(
+        contract,
+        _sample_evidence_result(),
+    )
+
+    assert package["schema_version"] == "migration-diagnosis-package/v1"
+    assert package["analysis_target"] == {
+        "target_candidate_id": "api-server",
+        "display_name": "주문 API 서버",
+        "repository_root": ".",
+        "source_path_filters": {
+            "include_paths": ["apps/api"],
+            "exclude_paths": [],
+        },
+        "analysis_topics": ["실행 방식", "네트워크"],
+        "selection_reason": "HTTP 진입점과 Dockerfile이 함께 확인됨",
+        "evidence_result_ref": "scope.target_candidate_id",
+    }
+    assert package["source_confirmed_facts"] == [
+        {
+            "id": "diagnosis-fact-src-runtime",
+            "statement": "현재 실행 런타임 값은 Spring Boot로 확인되었습니다.",
+            "source_fact_id": "src-runtime",
+            "evidence_ref": "apps/api/pom.xml:21",
+        },
+        {
+            "id": "diagnosis-fact-src-port",
+            "statement": "컨테이너 포트 값은 8080로 확인되었습니다.",
+            "source_fact_id": "src-port",
+            "evidence_ref": "apps/api/Dockerfile:12",
+        },
+    ]
+    assert package["required_inputs"] == [
+        {
+            "id": "resource_requests",
+            "statement": "CPU/Memory 요청과 제한 값은 소스만으로 확정할 수 없습니다.",
+            "reason": "레포지토리만으로 결정할 수 없음",
+            "needed_for": "Pod 크기 산정",
+            "user_context_available": False,
+            "required_input_id": "resource_requests",
+        }
+    ]
+    assert package["input_source_conflicts"] == [
+        {
+            "id": "conflict-src-port-ctx-port",
+            "field_name": "컨테이너 포트",
+            "summary": "컨테이너 포트 값이 소스와 입력에서 다릅니다.",
+            "source_fact_id": "src-port",
+            "user_context_id": "ctx-port",
+            "source_value": 8080,
+            "user_value": 8081,
+            "resolution_required": True,
+        }
+    ]
+    assert package["migration_risks"] == [
+        {
+            "id": "risk-required-resource_requests",
+            "risk_category": "미확인 운영 입력",
+            "summary": "CPU/Memory 요청과 제한 값이 확정되지 않아 Pod 크기 산정 판단을 보류합니다.",
+            "required_input_id": "resource_requests",
+        },
+        {
+            "id": "risk-conflict-src-port-ctx-port",
+            "risk_category": "입력-소스 충돌",
+            "summary": "컨테이너 포트 값이 충돌하여 이관 설계 전에 확인이 필요합니다.",
+            "conflict_id": "conflict-src-port-ctx-port",
+            "source_fact_id": "src-port",
+            "user_context_id": "ctx-port",
+        },
+    ]
+    assert package["follow_up_questions"] == [
+        {
+            "id": "question-resource_requests",
+            "ask_to": "애플리케이션 팀 또는 운영 담당자",
+            "question": "운영 기준 CPU/Memory requests/limits 값을 확인해 주세요.",
+            "why_needed": "Pod 크기 산정",
+            "source_required_input_id": "resource_requests",
+        },
+        {
+            "id": "question-conflict-src-port-ctx-port",
+            "ask_to": "애플리케이션 팀 또는 운영 담당자",
+            "question": "컨테이너 포트 값이 소스와 입력에서 다릅니다. 운영 기준 값을 확인해 주세요.",
+            "why_needed": "이관 설계 전 입력-소스 충돌 해소",
+            "source_conflict_id": "conflict-src-port-ctx-port",
+        }
+    ]
+    assert package["evidence_appendix"]["source_confirmed_facts"] == (
+        _sample_evidence_result()["source_confirmed_facts"]
+    )
+    assert package["evidence_appendix"]["user_input_context"] == (
+        _sample_evidence_result()["user_input_context"]
+    )
+    main_section_text = json.dumps(
+        {key: value for key, value in package.items() if key != "evidence_appendix"},
+        ensure_ascii=False,
+    )
+    for internal_term in (
+        "repository_cannot_determine",
+        "missing_required_input",
+        "container_port",
+        "Pod sizing",
+    ):
+        assert internal_term not in main_section_text
+
+
+def test_migration_diagnosis_package_validation_rejects_uncited_or_invented_claims() -> None:
+    validator = _load_validator()
+    contract = validator.load_migration_diagnosis_package(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    errors = validator.validate_migration_diagnosis_package(
+        contract,
+        {
+            "schema_version": "migration-diagnosis-package/v1",
+            "analysis_target": {},
+            "source_confirmed_facts": [
+                {"id": "claim-1", "statement": "replicas 값은 3입니다."}
+            ],
+            "required_inputs": [],
+            "migration_risks": [
+                {
+                    "id": "risk-1",
+                    "risk_type": "missing_required_input",
+                    "summary": "리스크가 있습니다.",
+                }
+            ],
+            "input_source_conflicts": [
+                {
+                    "id": "conflict-1",
+                    "source_fact_id": "src-1",
+                }
+            ],
+            "follow_up_questions": [
+                {
+                    "id": "question-1",
+                    "ask_to": "애플리케이션 팀",
+                    "question": "확인해 주세요.",
+                    "why_needed": "이관 판단",
+                }
+            ],
+            "evidence_appendix": {},
+            "generated_artifacts": [{"type": "kubernetes_manifest"}],
+        },
+    )
+
+    assert "analysis_target must reference Evidence Result scope" in errors
+    assert "source_confirmed_facts[0] must reference repository evidence" in errors
+    assert "migration_risks[0] must reference an Evidence Result item" in errors
+    assert "input_source_conflicts[0] must reference both conflict sides" in errors
+    assert "follow_up_questions[0] must reference a source item" in errors
+    assert "diagnosis package must not generate Kubernetes manifests" in errors
+
+
+def test_migration_diagnosis_package_labels_custom_unknowns_without_internal_ids() -> None:
+    validator = _load_validator()
+    contract = validator.load_migration_diagnosis_package(
+        Path("skills/kubernetes-field-assessment")
+    )
+    evidence_result = _sample_evidence_result()
+    evidence_result["required_inputs"] = [
+        {
+            "id": "startup_probe_path",
+            "reason": "repository_cannot_determine",
+            "needed_for": "probe design",
+            "value": None,
+            "user_context_available": False,
+        }
+    ]
+    evidence_result["conflicts"] = []
+
+    package = validator.build_migration_diagnosis_package(
+        contract,
+        evidence_result,
+    )
+
+    human_text = json.dumps(
+        [
+            package["required_inputs"][0]["statement"],
+            package["migration_risks"][0]["summary"],
+            package["follow_up_questions"][0]["question"],
+        ],
+        ensure_ascii=False,
+    )
+    assert "startup_probe_path" not in human_text
+    assert "startup probe path" in package["required_inputs"][0]["statement"]
+    assert package["required_inputs"][0]["needed_for"] == "Probe 설계"
+    assert package["follow_up_questions"][0]["question"] == (
+        "startup probe path 값을 확인해 주세요."
+    )
+
+
+def test_migration_diagnosis_package_validation_rejects_references_missing_from_appendix() -> None:
+    validator = _load_validator()
+    contract = validator.load_migration_diagnosis_package(
+        Path("skills/kubernetes-field-assessment")
+    )
+    package = validator.build_migration_diagnosis_package(
+        contract,
+        _sample_evidence_result(),
+    )
+    package["source_confirmed_facts"][0]["source_fact_id"] = "missing-source-fact"
+    package["source_confirmed_facts"][1]["evidence_ref"] = "apps/api/Dockerfile:999"
+    package["required_inputs"][0]["required_input_id"] = "missing-required-input"
+    package["input_source_conflicts"][0]["user_context_id"] = "missing-user-context"
+    package["follow_up_questions"][0]["source_required_input_id"] = (
+        "missing-required-input"
+    )
+    package["follow_up_questions"][1]["source_conflict_id"] = "missing-conflict"
+
+    errors = validator.validate_migration_diagnosis_package(contract, package)
+
+    assert (
+        "source_confirmed_facts[0] source_fact_id is missing from evidence appendix"
+        in errors
+    )
+    assert (
+        "source_confirmed_facts[1] evidence_ref is missing from evidence appendix"
+        in errors
+    )
+    assert (
+        "required_inputs[0] required_input_id is missing from evidence appendix"
+        in errors
+    )
+    assert (
+        "input_source_conflicts[0] user_context_id is missing from evidence appendix"
+        in errors
+    )
+    assert (
+        "follow_up_questions[0] source_required_input_id is missing from evidence appendix"
+        in errors
+    )
+    assert (
+        "follow_up_questions[1] source_conflict_id is missing from evidence appendix"
+        in errors
+    )
+
+
 def _write_manifest(
     package: Path,
     canonical_files: tuple[str, ...],
@@ -898,6 +1194,8 @@ def _write_required_canonical_file(
         _write_candidate_recommendation(path, validator)
     elif relative == validator.REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE:
         _write_confirmed_scope_evidence_result(path, validator)
+    elif relative == validator.REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE:
+        _write_migration_diagnosis_package(path, validator)
     else:
         _write_required_terms_doc(path)
 
@@ -1005,6 +1303,37 @@ def _write_confirmed_scope_evidence_result(path: Path, validator) -> None:
     )
 
 
+def _write_migration_diagnosis_package(path: Path, validator) -> None:
+    payload = {
+        "schema_version": "migration-diagnosis-package/v1",
+        "diagnosis_package": {
+            "required_sections": list(
+                validator.REQUIRED_MIGRATION_DIAGNOSIS_SECTIONS
+            ),
+            "field_language": dict(validator.REQUIRED_FIELD_LANGUAGE_POLICY),
+            "traceability": {
+                "major_judgments_require_reference": True,
+                "allowed_reference_fields": list(
+                    validator.REQUIRED_DIAGNOSIS_REFERENCE_FIELDS
+                ),
+            },
+        },
+        "follow_up_question_contract": {
+            "required_fields": list(
+                validator.REQUIRED_FOLLOW_UP_QUESTION_FIELDS
+            ),
+            "reference_fields": list(
+                validator.REQUIRED_FOLLOW_UP_REFERENCE_FIELDS
+            ),
+        },
+        "non_goals": list(validator.REQUIRED_DIAGNOSIS_NON_GOALS),
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
 def _sample_candidates() -> list[dict[str, object]]:
     return [
         {
@@ -1028,3 +1357,72 @@ def _sample_candidates() -> list[dict[str, object]]:
             "recommended": False,
         },
     ]
+
+
+def _sample_evidence_result() -> dict[str, object]:
+    return {
+        "schema_version": "evidence-result/v1",
+        "scope": {
+            "target_candidate_id": "api-server",
+            "target_display_name": "주문 API 서버",
+            "repository_root": ".",
+            "source_path_filters": {
+                "include_paths": ["apps/api"],
+                "exclude_paths": [],
+            },
+            "analysis_topics": ["runtime", "networking"],
+            "selection_reason": "HTTP 진입점과 Dockerfile이 함께 확인됨",
+        },
+        "source_confirmed_facts": [
+            {
+                "id": "src-runtime",
+                "property": "current_runtime",
+                "value": "Spring Boot",
+                "evidence_ref": "apps/api/pom.xml:21",
+                "origin": "repository_source",
+            },
+            {
+                "id": "src-port",
+                "property": "container_port",
+                "value": 8080,
+                "evidence_ref": "apps/api/Dockerfile:12",
+                "origin": "repository_source",
+            },
+        ],
+        "user_input_context": [
+            {
+                "id": "ctx-port",
+                "property": "container_port",
+                "value": 8081,
+                "raw_text": "운영 포트는 8081로 들었습니다.",
+                "origin": "user_input",
+            }
+        ],
+        "required_inputs": [
+            {
+                "id": "resource_requests",
+                "reason": "repository_cannot_determine",
+                "needed_for": "Pod sizing",
+                "value": None,
+                "user_context_available": False,
+            }
+        ],
+        "conflicts": [
+            {
+                "property": "container_port",
+                "source_fact_id": "src-port",
+                "user_context_id": "ctx-port",
+                "source_value": 8080,
+                "user_value": 8081,
+                "resolution_required": True,
+            }
+        ],
+        "secret_masking_events": [],
+        "no_invention_rules": [
+            "replicas",
+            "resource_requests",
+            "ingress_host",
+            "storage_class",
+            "production_secret_values",
+        ],
+    }

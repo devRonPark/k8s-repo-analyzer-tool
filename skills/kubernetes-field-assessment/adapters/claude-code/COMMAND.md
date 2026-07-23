@@ -12,9 +12,10 @@ Load the canonical workflow and rules before running the field assessment:
 - `../../canonical/candidate-recommendation.json`
 - `../../canonical/confirmed-scope-evidence-result.md`
 - `../../canonical/confirmed-scope-evidence-result.json`
+- `../../canonical/migration-diagnosis-package.json`
 - `../../canonical/diagnosis-package-rubric.md`
 - `../../canonical/validation.md`
 
 This adapter may define Claude Code command wording, but it must preserve Evidence Result
 semantics, Secret masking, no-invention behavior, and the
-Migration Diagnosis Package rubric from the canonical package.
+Migration Diagnosis Package contract and rubric from the canonical package.

@@ -14,6 +14,9 @@ REQUIRED_CANDIDATE_RECOMMENDATION_FILE = "canonical/candidate-recommendation.jso
 REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE = (
     "canonical/confirmed-scope-evidence-result.json"
 )
+REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE = (
+    "canonical/migration-diagnosis-package.json"
+)
 REQUIRED_CANONICAL_FILES = (
     "canonical/workflow.md",
     "canonical/evidence-rules.md",
@@ -23,6 +26,7 @@ REQUIRED_CANONICAL_FILES = (
     REQUIRED_CANDIDATE_RECOMMENDATION_FILE,
     "canonical/confirmed-scope-evidence-result.md",
     REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE,
+    REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE,
     "canonical/diagnosis-package-rubric.md",
     "canonical/validation.md",
 )
@@ -140,6 +144,46 @@ REQUIRED_NO_INVENTION_INPUTS = (
     "storage_class",
     "production_secret_values",
 )
+REQUIRED_MIGRATION_DIAGNOSIS_SECTIONS = (
+    "analysis_target",
+    "source_confirmed_facts",
+    "required_inputs",
+    "migration_risks",
+    "input_source_conflicts",
+    "follow_up_questions",
+    "evidence_appendix",
+)
+REQUIRED_FIELD_LANGUAGE_POLICY = {
+    "audience": [
+        "kubernetes_migration_engineer",
+        "customer_or_application_team",
+    ],
+    "internal_terms_only_in": ["evidence_appendix"],
+}
+REQUIRED_DIAGNOSIS_REFERENCE_FIELDS = (
+    "source_fact_id",
+    "user_context_id",
+    "required_input_id",
+    "conflict_id",
+    "evidence_ref",
+    "evidence_result_ref",
+)
+REQUIRED_FOLLOW_UP_QUESTION_FIELDS = (
+    "id",
+    "ask_to",
+    "question",
+    "why_needed",
+)
+REQUIRED_FOLLOW_UP_REFERENCE_FIELDS = (
+    "source_required_input_id",
+    "source_conflict_id",
+)
+REQUIRED_DIAGNOSIS_NON_GOALS = (
+    "manifest_generation",
+    "replica_guess",
+    "resource_sizing_guess",
+    "secret_value_output",
+)
 MASKED_SECRET_VALUE = "[MASKED_SECRET]"
 SECRET_PROPERTY_PATTERNS = (
     "password",
@@ -159,6 +203,38 @@ SECRET_VALUE_PATTERNS = (
     "api_key=",
     "apikey=",
 )
+DIAGNOSIS_PROPERTY_LABELS = {
+    "current_runtime": "현재 실행 런타임",
+    "container_port": "컨테이너 포트",
+    "resource_requests": "CPU/Memory 요청과 제한",
+    "replicas": "replica 수",
+    "ingress_host": "외부 접속 호스트",
+    "storage_class": "스토리지 클래스",
+    "production_secret_values": "운영 Secret 값",
+}
+FOLLOW_UP_QUESTION_TEXT = {
+    "resource_requests": "운영 기준 CPU/Memory requests/limits 값을 확인해 주세요.",
+    "replicas": "운영 기준 replica 수를 확인해 주세요.",
+    "ingress_host": "외부 접속에 사용할 host 또는 도메인을 확인해 주세요.",
+    "storage_class": "운영 클러스터에서 사용할 StorageClass를 확인해 주세요.",
+    "production_secret_values": "운영 Secret 값은 별도 보안 경로로 제공 여부만 확인해 주세요.",
+}
+DIAGNOSIS_TOPIC_LABELS = {
+    "runtime": "실행 방식",
+    "networking": "네트워크",
+    "build": "빌드",
+    "configuration": "설정",
+    "storage": "스토리지",
+    "health": "상태 확인",
+}
+DIAGNOSIS_REASON_LABELS = {
+    "repository_cannot_determine": "레포지토리만으로 결정할 수 없음",
+}
+DIAGNOSIS_NEEDED_FOR_LABELS = {
+    "Pod sizing": "Pod 크기 산정",
+    "migration decision": "이관 판단",
+    "probe design": "Probe 설계",
+}
 FORBIDDEN_CANONICAL_TERMS = (
     "Codex-only",
     "Claude Code-only",
@@ -200,6 +276,7 @@ def validate_package(package_root: Path) -> list[str]:
     _validate_intake_card(package_root, errors)
     _validate_candidate_recommendation(package_root, errors)
     _validate_confirmed_scope_evidence_result(package_root, errors)
+    _validate_migration_diagnosis_package_contract(package_root, errors)
 
     for relative in adapter_files:
         path = package_root / relative
@@ -271,6 +348,14 @@ def load_confirmed_scope_evidence_result(package_root: Path) -> dict[str, Any]:
     contract = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(contract, dict):
         raise ValueError("confirmed scope evidence result root must be an object")
+    return contract
+
+
+def load_migration_diagnosis_package(package_root: Path) -> dict[str, Any]:
+    path = package_root / REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(contract, dict):
+        raise ValueError("migration diagnosis package root must be an object")
     return contract
 
 
@@ -452,6 +537,209 @@ def run_confirmed_scope_evidence_core(
             ),
         ),
     }
+
+
+def build_migration_diagnosis_package(
+    contract: dict[str, Any],
+    evidence_result: dict[str, Any],
+) -> dict[str, Any]:
+    package = {
+        "schema_version": contract["schema_version"],
+        "analysis_target": _diagnosis_analysis_target(evidence_result),
+        "source_confirmed_facts": _diagnosis_source_facts(evidence_result),
+        "required_inputs": _diagnosis_required_inputs(evidence_result),
+        "input_source_conflicts": _diagnosis_conflicts(evidence_result),
+        "migration_risks": _diagnosis_risks(evidence_result),
+        "follow_up_questions": _diagnosis_follow_up_questions(evidence_result),
+        "evidence_appendix": _diagnosis_evidence_appendix(evidence_result),
+    }
+    errors = validate_migration_diagnosis_package(contract, package)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return package
+
+
+def validate_migration_diagnosis_package(
+    contract: dict[str, Any],
+    package: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    evidence_index = _diagnosis_evidence_index(package.get("evidence_appendix", {}))
+    if package.get("schema_version") != "migration-diagnosis-package/v1":
+        errors.append(
+            "migration diagnosis package schema_version must be "
+            "migration-diagnosis-package/v1"
+        )
+
+    diagnosis = contract.get("diagnosis_package", {})
+    required_sections = diagnosis.get("required_sections", [])
+    if isinstance(required_sections, list):
+        for section in required_sections:
+            if section not in package:
+                errors.append(f"diagnosis package missing section: {section}")
+    else:
+        errors.append("migration diagnosis contract required_sections are invalid")
+
+    if not _has_reference(
+        package.get("analysis_target", {}),
+        ("evidence_result_ref", "source_fact_id", "evidence_ref"),
+    ):
+        errors.append("analysis_target must reference Evidence Result scope")
+    elif not _analysis_target_reference_exists(
+        package.get("analysis_target", {}),
+        evidence_index,
+    ):
+        errors.append("analysis_target reference is missing from evidence appendix")
+
+    for index, item in enumerate(package.get("source_confirmed_facts", [])):
+        if not _has_reference(item, ("source_fact_id", "evidence_ref")):
+            errors.append(
+                f"source_confirmed_facts[{index}] must reference repository evidence"
+            )
+            continue
+        source_fact_id = item.get("source_fact_id")
+        if (
+            source_fact_id is not None
+            and source_fact_id not in evidence_index["source_fact_ids"]
+        ):
+            errors.append(
+                f"source_confirmed_facts[{index}] source_fact_id is missing "
+                "from evidence appendix"
+            )
+        evidence_ref = item.get("evidence_ref")
+        if (
+            evidence_ref is not None
+            and evidence_ref not in evidence_index["evidence_refs"]
+        ):
+            errors.append(
+                f"source_confirmed_facts[{index}] evidence_ref is missing "
+                "from evidence appendix"
+            )
+
+    for index, item in enumerate(package.get("required_inputs", [])):
+        if not _has_reference(item, ("required_input_id",)):
+            errors.append(
+                f"required_inputs[{index}] must reference an Evidence Result item"
+            )
+            continue
+        if item.get("required_input_id") not in evidence_index["required_input_ids"]:
+            errors.append(
+                f"required_inputs[{index}] required_input_id is missing "
+                "from evidence appendix"
+            )
+
+    for index, item in enumerate(package.get("migration_risks", [])):
+        if not _has_reference(
+            item,
+            (
+                "required_input_id",
+                "conflict_id",
+                "source_fact_id",
+                "user_context_id",
+                "evidence_ref",
+            ),
+        ):
+            errors.append(
+                f"migration_risks[{index}] must reference an Evidence Result item"
+            )
+            continue
+        _validate_optional_reference(
+            errors,
+            item,
+            "required_input_id",
+            evidence_index["required_input_ids"],
+            f"migration_risks[{index}]",
+        )
+        _validate_optional_reference(
+            errors,
+            item,
+            "conflict_id",
+            evidence_index["conflict_ids"],
+            f"migration_risks[{index}]",
+        )
+        _validate_optional_reference(
+            errors,
+            item,
+            "source_fact_id",
+            evidence_index["source_fact_ids"],
+            f"migration_risks[{index}]",
+        )
+        _validate_optional_reference(
+            errors,
+            item,
+            "user_context_id",
+            evidence_index["user_context_ids"],
+            f"migration_risks[{index}]",
+        )
+        _validate_optional_reference(
+            errors,
+            item,
+            "evidence_ref",
+            evidence_index["evidence_refs"],
+            f"migration_risks[{index}]",
+        )
+
+    for index, item in enumerate(package.get("input_source_conflicts", [])):
+        if not _has_all_references(item, ("source_fact_id", "user_context_id")):
+            errors.append(
+                f"input_source_conflicts[{index}] must reference both conflict sides"
+            )
+            continue
+        if item.get("source_fact_id") not in evidence_index["source_fact_ids"]:
+            errors.append(
+                f"input_source_conflicts[{index}] source_fact_id is missing "
+                "from evidence appendix"
+            )
+        if item.get("user_context_id") not in evidence_index["user_context_ids"]:
+            errors.append(
+                f"input_source_conflicts[{index}] user_context_id is missing "
+                "from evidence appendix"
+            )
+
+    question_fields = contract.get("follow_up_question_contract", {}).get(
+        "required_fields",
+        [],
+    )
+    if isinstance(question_fields, list):
+        for index, item in enumerate(package.get("follow_up_questions", [])):
+            missing = [field for field in question_fields if field not in item]
+            if missing:
+                errors.append(
+                    f"follow_up_questions[{index}] missing fields: "
+                    f"{', '.join(missing)}"
+                )
+            if not _has_reference(item, REQUIRED_FOLLOW_UP_REFERENCE_FIELDS):
+                errors.append(
+                    f"follow_up_questions[{index}] must reference a source item"
+                )
+                continue
+            if (
+                item.get("source_required_input_id") is not None
+                and item.get("source_required_input_id")
+                not in evidence_index["required_input_ids"]
+            ):
+                errors.append(
+                    f"follow_up_questions[{index}] source_required_input_id "
+                    "is missing from evidence appendix"
+                )
+            if (
+                item.get("source_conflict_id") is not None
+                and item.get("source_conflict_id")
+                not in evidence_index["conflict_ids"]
+            ):
+                errors.append(
+                    f"follow_up_questions[{index}] source_conflict_id "
+                    "is missing from evidence appendix"
+                )
+
+    if "kubernetes_manifests" in package:
+        errors.append("diagnosis package must not generate Kubernetes manifests")
+    for artifact in package.get("generated_artifacts", []):
+        if isinstance(artifact, dict) and artifact.get("type") == "kubernetes_manifest":
+            errors.append("diagnosis package must not generate Kubernetes manifests")
+            break
+
+    return errors
 
 
 def _validate_intake_card(package_root: Path, errors: list[str]) -> None:
@@ -691,6 +979,355 @@ def _validate_confirmed_scope_evidence_result(
             SECRET_VALUE_PATTERNS
         ).issubset(set(value_patterns)):
             errors.append("confirmed scope secret value patterns are incomplete")
+
+
+def _validate_migration_diagnosis_package_contract(
+    package_root: Path,
+    errors: list[str],
+) -> None:
+    path = package_root / REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE
+    if not path.is_file():
+        errors.append(
+            "missing migration diagnosis package file: "
+            f"{REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE}"
+        )
+        return
+    try:
+        contract = load_migration_diagnosis_package(package_root)
+    except json.JSONDecodeError as exc:
+        errors.append(f"invalid migration diagnosis package JSON: {exc}")
+        return
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+        return
+
+    if contract.get("schema_version") != "migration-diagnosis-package/v1":
+        errors.append(
+            "migration diagnosis package schema_version must be "
+            "migration-diagnosis-package/v1"
+        )
+
+    diagnosis = contract.get("diagnosis_package")
+    if not isinstance(diagnosis, dict):
+        errors.append("migration diagnosis package must define diagnosis_package")
+    else:
+        required_sections = diagnosis.get("required_sections")
+        if not isinstance(required_sections, list) or not set(
+            REQUIRED_MIGRATION_DIAGNOSIS_SECTIONS
+        ).issubset(set(required_sections)):
+            errors.append("migration diagnosis required sections are incomplete")
+
+        field_language = diagnosis.get("field_language")
+        if not isinstance(field_language, dict):
+            errors.append("migration diagnosis package must define field language")
+        else:
+            if field_language.get("audience") != REQUIRED_FIELD_LANGUAGE_POLICY[
+                "audience"
+            ]:
+                errors.append("migration diagnosis audience policy is invalid")
+            if field_language.get(
+                "internal_terms_only_in"
+            ) != REQUIRED_FIELD_LANGUAGE_POLICY["internal_terms_only_in"]:
+                errors.append("migration diagnosis internal term policy is invalid")
+
+        traceability = diagnosis.get("traceability")
+        if not isinstance(traceability, dict):
+            errors.append("migration diagnosis package must define traceability")
+        else:
+            if traceability.get("major_judgments_require_reference") is not True:
+                errors.append("migration diagnosis judgments must require references")
+            allowed_fields = traceability.get("allowed_reference_fields")
+            if not isinstance(allowed_fields, list) or not set(
+                REQUIRED_DIAGNOSIS_REFERENCE_FIELDS
+            ).issubset(set(allowed_fields)):
+                errors.append("migration diagnosis reference fields are incomplete")
+
+    follow_up_contract = contract.get("follow_up_question_contract")
+    if not isinstance(follow_up_contract, dict):
+        errors.append(
+            "migration diagnosis package must define follow-up question contract"
+        )
+    else:
+        question_fields = follow_up_contract.get("required_fields")
+        if not isinstance(question_fields, list) or not set(
+            REQUIRED_FOLLOW_UP_QUESTION_FIELDS
+        ).issubset(set(question_fields)):
+            errors.append("migration diagnosis follow-up fields are incomplete")
+        reference_fields = follow_up_contract.get("reference_fields")
+        if not isinstance(reference_fields, list) or not set(
+            REQUIRED_FOLLOW_UP_REFERENCE_FIELDS
+        ).issubset(set(reference_fields)):
+            errors.append(
+                "migration diagnosis follow-up reference fields are incomplete"
+            )
+
+    non_goals = contract.get("non_goals")
+    if not isinstance(non_goals, list) or not set(
+        REQUIRED_DIAGNOSIS_NON_GOALS
+    ).issubset(set(non_goals)):
+        errors.append("migration diagnosis non-goals are incomplete")
+
+
+def _diagnosis_analysis_target(evidence_result: dict[str, Any]) -> dict[str, Any]:
+    scope = evidence_result["scope"]
+    target_candidate_id = scope["target_candidate_id"]
+    return {
+        "target_candidate_id": target_candidate_id,
+        "display_name": scope.get("target_display_name", target_candidate_id),
+        "repository_root": scope["repository_root"],
+        "source_path_filters": scope["source_path_filters"],
+        "analysis_topics": [
+            _topic_label(topic) for topic in scope["analysis_topics"]
+        ],
+        "selection_reason": scope.get(
+            "selection_reason",
+            "분석 범위로 확정된 애플리케이션입니다.",
+        ),
+        "evidence_result_ref": "scope.target_candidate_id",
+    }
+
+
+def _diagnosis_source_facts(evidence_result: dict[str, Any]) -> list[dict[str, Any]]:
+    facts = []
+    for fact in evidence_result.get("source_confirmed_facts", []):
+        facts.append(
+            {
+                "id": f"diagnosis-fact-{fact['id']}",
+                "statement": (
+                    f"{_property_label(fact['property'])} 값은 "
+                    f"{fact['value']}로 확인되었습니다."
+                ),
+                "source_fact_id": fact["id"],
+                "evidence_ref": fact["evidence_ref"],
+            }
+        )
+    return facts
+
+
+def _diagnosis_required_inputs(
+    evidence_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    required_inputs = []
+    for item in evidence_result.get("required_inputs", []):
+        required_inputs.append(
+            {
+                "id": item["id"],
+                "statement": (
+                    f"{_property_label(item['id'])} 값은 "
+                    "소스만으로 확정할 수 없습니다."
+                ),
+                "reason": _reason_label(item["reason"]),
+                "needed_for": _needed_for_label(item["needed_for"]),
+                "user_context_available": item["user_context_available"],
+                "required_input_id": item["id"],
+            }
+        )
+    return required_inputs
+
+
+def _diagnosis_conflicts(evidence_result: dict[str, Any]) -> list[dict[str, Any]]:
+    conflicts = []
+    for conflict in evidence_result.get("conflicts", []):
+        conflict_id = _diagnosis_conflict_id(conflict)
+        conflicts.append(
+            {
+                "id": conflict_id,
+                "field_name": _property_label(conflict["property"]),
+                "summary": (
+                    f"{_property_label(conflict['property'])} 값이 "
+                    "소스와 입력에서 다릅니다."
+                ),
+                "source_fact_id": conflict["source_fact_id"],
+                "user_context_id": conflict["user_context_id"],
+                "source_value": conflict["source_value"],
+                "user_value": conflict["user_value"],
+                "resolution_required": conflict["resolution_required"],
+            }
+        )
+    return conflicts
+
+
+def _diagnosis_risks(evidence_result: dict[str, Any]) -> list[dict[str, Any]]:
+    risks = []
+    for item in evidence_result.get("required_inputs", []):
+        risks.append(
+            {
+                "id": f"risk-required-{item['id']}",
+                "risk_category": "미확인 운영 입력",
+                "summary": (
+                    f"{_property_label(item['id'])} 값이 확정되지 않아 "
+                    f"{_needed_for_label(item['needed_for'])} 판단을 보류합니다."
+                ),
+                "required_input_id": item["id"],
+            }
+        )
+    for conflict in evidence_result.get("conflicts", []):
+        conflict_id = _diagnosis_conflict_id(conflict)
+        risks.append(
+            {
+                "id": f"risk-{conflict_id}",
+                "risk_category": "입력-소스 충돌",
+                "summary": (
+                    f"{_property_label(conflict['property'])} 값이 충돌하여 "
+                    "이관 설계 전에 확인이 필요합니다."
+                ),
+                "conflict_id": conflict_id,
+                "source_fact_id": conflict["source_fact_id"],
+                "user_context_id": conflict["user_context_id"],
+            }
+        )
+    return risks
+
+
+def _diagnosis_follow_up_questions(
+    evidence_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    questions = []
+    for item in evidence_result.get("required_inputs", []):
+        questions.append(
+            {
+                "id": f"question-{item['id']}",
+                "ask_to": "애플리케이션 팀 또는 운영 담당자",
+                "question": FOLLOW_UP_QUESTION_TEXT.get(
+                    item["id"],
+                    f"{_property_label(item['id'])} 값을 확인해 주세요.",
+                ),
+                "why_needed": _needed_for_label(item["needed_for"]),
+                "source_required_input_id": item["id"],
+            }
+        )
+    for conflict in evidence_result.get("conflicts", []):
+        conflict_id = _diagnosis_conflict_id(conflict)
+        questions.append(
+            {
+                "id": f"question-{conflict_id}",
+                "ask_to": "애플리케이션 팀 또는 운영 담당자",
+                "question": (
+                    f"{_property_label(conflict['property'])} 값이 "
+                    "소스와 입력에서 다릅니다. 운영 기준 값을 확인해 주세요."
+                ),
+                "why_needed": "이관 설계 전 입력-소스 충돌 해소",
+                "source_conflict_id": conflict_id,
+            }
+        )
+    return questions
+
+
+def _diagnosis_evidence_appendix(evidence_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "scope": dict(evidence_result.get("scope", {})),
+        "source_confirmed_facts": list(
+            evidence_result.get("source_confirmed_facts", [])
+        ),
+        "user_input_context": list(evidence_result.get("user_input_context", [])),
+        "required_inputs": list(evidence_result.get("required_inputs", [])),
+        "conflicts": list(evidence_result.get("conflicts", [])),
+        "secret_masking_events": list(
+            evidence_result.get("secret_masking_events", [])
+        ),
+        "no_invention_rules": list(evidence_result.get("no_invention_rules", [])),
+    }
+
+
+def _diagnosis_conflict_id(conflict: dict[str, Any]) -> str:
+    return (
+        f"conflict-{conflict['source_fact_id']}-{conflict['user_context_id']}"
+    )
+
+
+def _property_label(property_name: str) -> str:
+    return DIAGNOSIS_PROPERTY_LABELS.get(property_name, _humanize_identifier(property_name))
+
+
+def _topic_label(topic: str) -> str:
+    return DIAGNOSIS_TOPIC_LABELS.get(topic, topic)
+
+
+def _reason_label(reason: str) -> str:
+    return DIAGNOSIS_REASON_LABELS.get(reason, reason)
+
+
+def _needed_for_label(needed_for: str) -> str:
+    return DIAGNOSIS_NEEDED_FOR_LABELS.get(needed_for, needed_for)
+
+
+def _humanize_identifier(value: str) -> str:
+    return value.replace("_", " ").replace("-", " ")
+
+
+def _has_reference(item: dict[str, Any], fields: tuple[str, ...]) -> bool:
+    return any(item.get(field) is not None for field in fields)
+
+
+def _has_all_references(item: dict[str, Any], fields: tuple[str, ...]) -> bool:
+    return all(item.get(field) is not None for field in fields)
+
+
+def _diagnosis_evidence_index(
+    evidence_appendix: dict[str, Any],
+) -> dict[str, set[Any]]:
+    source_facts = evidence_appendix.get("source_confirmed_facts", [])
+    user_context = evidence_appendix.get("user_input_context", [])
+    required_inputs = evidence_appendix.get("required_inputs", [])
+    conflicts = evidence_appendix.get("conflicts", [])
+    return {
+        "scope_paths": _scope_paths(evidence_appendix.get("scope", {})),
+        "source_fact_ids": {
+            fact.get("id") for fact in source_facts if isinstance(fact, dict)
+        },
+        "evidence_refs": {
+            fact.get("evidence_ref") for fact in source_facts if isinstance(fact, dict)
+        },
+        "user_context_ids": {
+            item.get("id") for item in user_context if isinstance(item, dict)
+        },
+        "required_input_ids": {
+            item.get("id") for item in required_inputs if isinstance(item, dict)
+        },
+        "conflict_ids": {
+            _diagnosis_conflict_id(conflict)
+            for conflict in conflicts
+            if isinstance(conflict, dict)
+            and "source_fact_id" in conflict
+            and "user_context_id" in conflict
+        },
+    }
+
+
+def _scope_paths(scope: dict[str, Any]) -> set[str]:
+    return {
+        f"scope.{key}"
+        for key, value in scope.items()
+        if value is not None
+    }
+
+
+def _analysis_target_reference_exists(
+    analysis_target: dict[str, Any],
+    evidence_index: dict[str, set[Any]],
+) -> bool:
+    evidence_result_ref = analysis_target.get("evidence_result_ref")
+    if evidence_result_ref is not None:
+        return evidence_result_ref in evidence_index["scope_paths"]
+    source_fact_id = analysis_target.get("source_fact_id")
+    if source_fact_id is not None:
+        return source_fact_id in evidence_index["source_fact_ids"]
+    evidence_ref = analysis_target.get("evidence_ref")
+    if evidence_ref is not None:
+        return evidence_ref in evidence_index["evidence_refs"]
+    return False
+
+
+def _validate_optional_reference(
+    errors: list[str],
+    item: dict[str, Any],
+    field: str,
+    allowed_values: set[Any],
+    path: str,
+) -> None:
+    value = item.get(field)
+    if value is not None and value not in allowed_values:
+        errors.append(f"{path} {field} is missing from evidence appendix")
 
 
 def _normalize_source_facts(

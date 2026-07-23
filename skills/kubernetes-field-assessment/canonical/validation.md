@@ -4,7 +4,8 @@ This Agent Runtime Skill Package is valid only when:
 
 - the canonical package defines the workflow, evidence rules, analysis start
   card semantics, candidate recommendation contract, confirmed-scope Evidence
-  Result contract, Migration Diagnosis Package rubric, and validation criteria;
+  Result contract, Migration Diagnosis Package contract and rubric, and
+  validation criteria;
 - runtime adapters for Codex, Claude Code, and OpenCode reference `canonical/`
   files;
 - runtime adapters preserve Evidence Result semantics;

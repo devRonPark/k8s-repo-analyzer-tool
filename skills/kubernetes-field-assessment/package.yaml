@@ -11,6 +11,7 @@ canonical:
   - canonical/candidate-recommendation.json
   - canonical/confirmed-scope-evidence-result.md
   - canonical/confirmed-scope-evidence-result.json
+  - canonical/migration-diagnosis-package.json
   - canonical/diagnosis-package-rubric.md
   - canonical/validation.md
 adapters:

@@ -31,6 +31,8 @@ The concrete candidate recommendation contract lives in
 `canonical/candidate-recommendation.json`.
 The confirmed-scope Evidence Result contract lives in
 `canonical/confirmed-scope-evidence-result.json`.
+The Migration Diagnosis Package contract lives in
+`canonical/migration-diagnosis-package.json`.
 
 ## Runtime Adapter Rule
 
