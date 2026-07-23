@@ -84,6 +84,46 @@ def test_adapters_reference_every_manifest_canonical_file() -> None:
             assert canonical_file.replace("canonical/", "../../canonical/") in text
 
 
+def test_runtime_adapter_pack_lists_four_supported_runtimes() -> None:
+    validator = _load_validator()
+
+    entries = validator.load_manifest_adapter_entries(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    assert entries == {
+        "codex": "adapters/codex/SKILL.md",
+        "claude_code": "adapters/claude-code/COMMAND.md",
+        "opencode": "adapters/opencode/COMMAND.md",
+        "qwen_code": "adapters/qwen-code/COMMAND.md",
+    }
+
+
+def test_runtime_adapters_preserve_canonical_rules_and_drift_guards() -> None:
+    validator = _load_validator()
+    package = Path("skills/kubernetes-field-assessment")
+    _, adapter_files, errors = validator._manifest_paths(package)
+
+    assert errors == []
+    for adapter in adapter_files:
+        text = (package / adapter).read_text(encoding="utf-8")
+        for canonical_ref in validator.REQUIRED_ADAPTER_DRIFT_GUARD_REFERENCES:
+            assert canonical_ref in text
+        for phrase in validator.REQUIRED_ADAPTER_DRIFT_GUARD_PHRASES:
+            assert phrase in text
+
+
+def test_at_least_one_runtime_adapter_declares_workflow_smoke_path() -> None:
+    validator = _load_validator()
+
+    smoke_paths = validator.adapter_smoke_paths(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    assert smoke_paths
+    assert all(path in validator.REQUIRED_ADAPTER_FILES for path in smoke_paths)
+
+
 def test_analysis_start_card_declares_choice_defaults_and_direct_input() -> None:
     validator = _load_validator()
 

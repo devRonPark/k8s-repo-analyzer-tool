@@ -16,6 +16,6 @@ Load the canonical workflow and rules before running the field assessment:
 - `../../canonical/diagnosis-package-rubric.md`
 - `../../canonical/validation.md`
 
-This adapter may define Claude Code command wording, but it must preserve Evidence Result
-semantics, Secret masking, no-invention behavior, and the
-Migration Diagnosis Package contract and rubric from the canonical package.
+This adapter may define Claude Code command wording, but it must preserve Evidence Result semantics,
+Secret masking, no-invention behavior, and the Migration Diagnosis Package contract and rubric
+from the canonical package.

@@ -6,8 +6,8 @@ This Agent Runtime Skill Package is valid only when:
   card semantics, candidate recommendation contract, confirmed-scope Evidence
   Result contract, Migration Diagnosis Package contract and rubric, and
   validation criteria;
-- runtime adapters for Codex, Claude Code, and OpenCode reference `canonical/`
-  files;
+- runtime adapters for Codex, Claude Code, OpenCode, and QwenCode reference
+  `canonical/` files;
 - runtime adapters preserve Evidence Result semantics;
 - runtime adapters do not change no-invention or Secret masking behavior.
 

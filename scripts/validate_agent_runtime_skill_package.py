@@ -30,11 +30,13 @@ REQUIRED_CANONICAL_FILES = (
     "canonical/diagnosis-package-rubric.md",
     "canonical/validation.md",
 )
-REQUIRED_ADAPTER_FILES = (
-    "adapters/codex/SKILL.md",
-    "adapters/claude-code/COMMAND.md",
-    "adapters/opencode/COMMAND.md",
-)
+REQUIRED_RUNTIME_ADAPTERS = {
+    "codex": "adapters/codex/SKILL.md",
+    "claude_code": "adapters/claude-code/COMMAND.md",
+    "opencode": "adapters/opencode/COMMAND.md",
+    "qwen_code": "adapters/qwen-code/COMMAND.md",
+}
+REQUIRED_ADAPTER_FILES = tuple(REQUIRED_RUNTIME_ADAPTERS.values())
 REQUIRED_TERMS = (
     "Agent Runtime Skill Package",
     "Kubernetes Migration Field Assessment",
@@ -42,6 +44,23 @@ REQUIRED_TERMS = (
     "Migration Diagnosis Package",
     "Secret masking",
     "no-invention",
+)
+REQUIRED_ADAPTER_DRIFT_GUARD_REFERENCES = (
+    "../../canonical/workflow.md",
+    "../../canonical/evidence-rules.md",
+    "../../canonical/migration-diagnosis-package.json",
+    "../../canonical/diagnosis-package-rubric.md",
+)
+REQUIRED_ADAPTER_DRIFT_GUARD_PHRASES = (
+    "must preserve Evidence Result semantics",
+    "Secret masking",
+    "no-invention behavior",
+    "Migration Diagnosis Package contract and rubric",
+)
+REQUIRED_ADAPTER_SMOKE_PATH_PHRASES = (
+    "## Smoke Path",
+    "../../canonical/workflow.md",
+    "../../canonical/intake-card.json",
 )
 REQUIRED_FORBIDDEN_USER_PHRASES = (
     "고객이 선정한",
@@ -239,6 +258,7 @@ FORBIDDEN_CANONICAL_TERMS = (
     "Codex-only",
     "Claude Code-only",
     "OpenCode-only",
+    "QwenCode-only",
 )
 
 
@@ -248,6 +268,7 @@ def validate_package(package_root: Path) -> list[str]:
         return [f"package root does not exist: {package_root}"]
 
     canonical_files, adapter_files, manifest_errors = _manifest_paths(package_root)
+    adapter_entries = load_manifest_adapter_entries(package_root)
     errors.extend(manifest_errors)
     for expected in REQUIRED_CANONICAL_FILES:
         if expected not in canonical_files:
@@ -255,6 +276,12 @@ def validate_package(package_root: Path) -> list[str]:
     for expected in REQUIRED_ADAPTER_FILES:
         if expected not in adapter_files:
             errors.append(f"manifest does not list adapter file: {expected}")
+    for adapter_name, adapter_path in REQUIRED_RUNTIME_ADAPTERS.items():
+        if adapter_entries.get(adapter_name) != adapter_path:
+            errors.append(
+                "manifest does not list runtime adapter entry: "
+                f"{adapter_name}: {adapter_path}"
+            )
 
     canonical_texts: list[str] = []
     for relative in canonical_files:
@@ -290,10 +317,51 @@ def validate_package(package_root: Path) -> list[str]:
             canonical_ref = canonical_file.replace("canonical/", "../../canonical/")
             if canonical_ref not in text:
                 errors.append(f"{relative} does not reference {canonical_ref}")
-        if "Evidence Result" not in text:
-            errors.append(f"{relative} does not preserve Evidence Result semantics")
+        for canonical_ref in REQUIRED_ADAPTER_DRIFT_GUARD_REFERENCES:
+            if canonical_ref not in text:
+                errors.append(f"{relative} missing drift guard reference: {canonical_ref}")
+        for phrase in REQUIRED_ADAPTER_DRIFT_GUARD_PHRASES:
+            if phrase not in text:
+                errors.append(f"{relative} missing drift guard phrase: {phrase}")
+
+    if not adapter_smoke_paths(package_root):
+        errors.append("no runtime adapter declares workflow smoke path")
 
     return errors
+
+
+def load_manifest_adapter_entries(package_root: Path) -> dict[str, str]:
+    path = package_root / REQUIRED_MANIFEST_FILE
+    if not path.is_file():
+        return {}
+
+    entries: dict[str, str] = {}
+    section: str | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped == "canonical:":
+            section = "canonical"
+            continue
+        if stripped == "adapters:":
+            section = "adapters"
+            continue
+        if section == "adapters" and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            entries[key.strip()] = value.strip()
+    return entries
+
+
+def adapter_smoke_paths(package_root: Path) -> list[str]:
+    _, adapter_files, _ = _manifest_paths(package_root)
+    smoke_paths = []
+    for relative in adapter_files:
+        path = package_root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if all(phrase in text for phrase in REQUIRED_ADAPTER_SMOKE_PATH_PHRASES):
+            smoke_paths.append(relative)
+    return smoke_paths
 
 
 def load_intake_card(package_root: Path) -> dict[str, Any]:

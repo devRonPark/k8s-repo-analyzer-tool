@@ -21,6 +21,6 @@ Before acting, read:
 - `../../canonical/diagnosis-package-rubric.md`
 - `../../canonical/validation.md`
 
-This adapter may only supply Codex trigger metadata. It must preserve Evidence Result
-semantics, Secret masking, no-invention behavior, and the Migration
-Diagnosis Package contract and rubric from the canonical package.
+This adapter may only supply Codex trigger metadata. It must preserve Evidence Result semantics,
+Secret masking, no-invention behavior, and the Migration Diagnosis Package contract and rubric
+from the canonical package.
