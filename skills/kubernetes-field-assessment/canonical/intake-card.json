@@ -1,0 +1,110 @@
+{
+  "schema_version": "analysis-start-card/v1",
+  "direct_input": {
+    "allowed": true,
+    "normalization_required": true,
+    "confirmation_required": true,
+    "structured_interpretation_fields": [
+      "raw_text",
+      "normalized_meaning",
+      "assumptions",
+      "follow_up_checks"
+    ],
+    "confirmation_options": [
+      "proceed",
+      "edit"
+    ]
+  },
+  "forbidden_user_phrases": [
+    "고객이 선정한",
+    "customer selected",
+    "Runnable Unit",
+    "Evidence Result"
+  ],
+  "questions": [
+    {
+      "id": "application_shape",
+      "prompt": "이 애플리케이션은 어떤 형태에 가깝나요?",
+      "recommended_option_id": "web_api",
+      "allow_direct_input": true,
+      "options": [
+        {
+          "id": "web_api",
+          "label": "웹/API 서버"
+        },
+        {
+          "id": "batch_scheduler",
+          "label": "배치/스케줄러"
+        },
+        {
+          "id": "worker_async",
+          "label": "워커/비동기 처리"
+        },
+        {
+          "id": "static_frontend",
+          "label": "정적 프론트엔드"
+        },
+        {
+          "id": "unknown",
+          "label": "잘 모름"
+        }
+      ]
+    },
+    {
+      "id": "current_execution_shape",
+      "prompt": "현재는 어떤 방식으로 실행되는 것으로 보이나요?",
+      "recommended_option_id": "unknown",
+      "allow_direct_input": true,
+      "options": [
+        {
+          "id": "vm_or_baremetal",
+          "label": "VM/물리서버에서 직접 실행"
+        },
+        {
+          "id": "was_or_servlet_container",
+          "label": "WAS/Tomcat/WebLogic 등에서 실행"
+        },
+        {
+          "id": "docker_compose",
+          "label": "Docker/Compose"
+        },
+        {
+          "id": "existing_kubernetes",
+          "label": "기존 Kubernetes"
+        },
+        {
+          "id": "unknown",
+          "label": "잘 모름"
+        }
+      ]
+    },
+    {
+      "id": "analysis_purpose",
+      "prompt": "이번에 먼저 확인할 내용은 무엇인가요?",
+      "recommended_option_id": "migration_field_diagnosis",
+      "allow_direct_input": true,
+      "options": [
+        {
+          "id": "migration_field_diagnosis",
+          "label": "Kubernetes 이관 사전진단"
+        },
+        {
+          "id": "manifest_inputs",
+          "label": "manifest 작성 전 필요한 입력 정리"
+        },
+        {
+          "id": "risks_and_questions",
+          "label": "이관 위험과 후속 질문 정리"
+        },
+        {
+          "id": "gap_repair",
+          "label": "이전 분석에서 빠진 부분 보완"
+        },
+        {
+          "id": "unknown",
+          "label": "잘 모름"
+        }
+      ]
+    }
+  ]
+}

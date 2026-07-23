@@ -6,6 +6,7 @@ canonical:
   - canonical/workflow.md
   - canonical/evidence-rules.md
   - canonical/intake.md
+  - canonical/intake-card.json
   - canonical/diagnosis-package-rubric.md
   - canonical/validation.md
 adapters:

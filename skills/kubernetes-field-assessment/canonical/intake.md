@@ -20,3 +20,14 @@ Ask only for minimal context needed to guide repository assessment:
 
 Direct input must be normalized into structured meaning and confirmed before it
 changes the assessment scope.
+
+The concrete question set and option IDs live in `canonical/intake-card.json`.
+Runtime adapters may render the card differently, but must preserve those
+question IDs, recommended defaults, direct-input policy, and forbidden
+user-facing phrases.
+
+Blank input means "select this question's recommended option and advance."
+Non-empty input that does not match an option ID is direct input. Direct input
+stops advancement until the agent returns a structured interpretation with the
+raw text, normalized meaning, assumptions, and follow-up checks, then asks the
+user to proceed or edit.
