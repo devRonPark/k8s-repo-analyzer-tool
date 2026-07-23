@@ -1,0 +1,20 @@
+---
+name: kubernetes-field-assessment
+description: Run the runtime-neutral Kubernetes Migration Field Assessment workflow for repository-backed migration diagnosis.
+---
+
+# Kubernetes Field Assessment Adapter
+
+Use the canonical Agent Runtime Skill Package in `../../canonical/`.
+
+Before acting, read:
+
+- `../../canonical/workflow.md`
+- `../../canonical/evidence-rules.md`
+- `../../canonical/intake.md`
+- `../../canonical/diagnosis-package-rubric.md`
+- `../../canonical/validation.md`
+
+This adapter may only supply Codex trigger metadata. It must preserve Evidence Result
+semantics, Secret masking, no-invention behavior, and the Migration
+Diagnosis Package rubric from the canonical package.

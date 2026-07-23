@@ -1,0 +1,14 @@
+schema_version: agent-runtime-skill-package/v1
+name: kubernetes-field-assessment
+display_name: Kubernetes Migration Field Assessment
+description: Runtime-neutral workflow package for repository-backed Kubernetes migration field assessment.
+canonical:
+  - canonical/workflow.md
+  - canonical/evidence-rules.md
+  - canonical/intake.md
+  - canonical/diagnosis-package-rubric.md
+  - canonical/validation.md
+adapters:
+  codex: adapters/codex/SKILL.md
+  claude_code: adapters/claude-code/COMMAND.md
+  opencode: adapters/opencode/COMMAND.md
