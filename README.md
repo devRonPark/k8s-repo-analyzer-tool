@@ -218,6 +218,53 @@ Skill 규칙: 먼저 Python 도구를 호출하고, 도구가 반환한 것만 �
 시에는 일반적인 Kubernetes 지식으로 대체하지 않고 실패한 단계·원인·확인할 파일을
 보고합니다.
 
+### Qwen Code CLI 적용
+
+Qwen Code용 설치형 extension 패키지는
+[`skills/kubernetes-field-assessment/install/qwen-code-extension`](./skills/kubernetes-field-assessment/install/qwen-code-extension)에
+있습니다. 이 디렉터리는 `qwen-extension.json`과
+`skills/kubernetes-field-assessment/SKILL.md`, 그리고 전역 설치 후에도 동작하는 bundled
+`canonical/` 파일을 포함합니다.
+
+로컬 checkout에서 전역 사용자 범위로 설치:
+
+```bash
+qwen extensions install "$PWD/skills/kubernetes-field-assessment/install/qwen-code-extension"
+```
+
+현재 workspace에서만 활성화하려면 project scope로 설치합니다.
+
+```bash
+qwen extensions install "$PWD/skills/kubernetes-field-assessment/install/qwen-code-extension" \
+  --scope project
+```
+
+대화형 Qwen Code CLI 안에서는 hot reload가 필요한 경우 slash command로 설치할 수 있습니다.
+
+```text
+/extensions install /absolute/path/to/k8s-repo-analyzer-tool/skills/kubernetes-field-assessment/install/qwen-code-extension
+```
+
+설치 확인:
+
+```text
+/skills
+```
+
+목록에 `kubernetes-field-assessment`가 보이면 적용된 것입니다. 직접 실행:
+
+```text
+/kubernetes-field-assessment
+```
+
+다른 머신에서 적용할 때는 push된 브랜치를 받은 뒤 같은 경로를 설치합니다.
+
+```bash
+git clone -b field-assessment-skill-poc https://github.com/devRonPark/k8s-repo-analyzer-tool.git
+cd k8s-repo-analyzer-tool
+qwen extensions install "$PWD/skills/kubernetes-field-assessment/install/qwen-code-extension"
+```
+
 ## 결정성
 
 timestamp, 소요 시간, 임시 경로, 절대 경로, 무작위 ID, 순서가 없는 set은 출력에 도달하지
