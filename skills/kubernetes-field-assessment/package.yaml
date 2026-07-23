@@ -20,3 +20,5 @@ adapters:
   claude_code: adapters/claude-code/COMMAND.md
   opencode: adapters/opencode/COMMAND.md
   qwen_code: adapters/qwen-code/COMMAND.md
+installables:
+  qwen_code_extension: install/qwen-code-extension

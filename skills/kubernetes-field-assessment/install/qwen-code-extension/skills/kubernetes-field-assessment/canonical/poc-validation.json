@@ -1,0 +1,817 @@
+{
+  "schema_version": "field-assessment-poc-validation/v1",
+  "repositories": [
+    {
+      "repository": "jbangdev/jbang",
+      "clone_url": "https://github.com/jbangdev/jbang.git",
+      "revision": "351b42b46e72ec442f4593f993c36e344c506dad",
+      "category": "plain_java_application",
+      "expected_classification": "partial_result",
+      "canned_intake": {
+        "answers": [
+          {
+            "question_id": "application_shape",
+            "mode": "selected_option",
+            "option_id": "unknown"
+          },
+          {
+            "question_id": "current_execution_shape",
+            "mode": "selected_option",
+            "option_id": "vm_or_baremetal"
+          },
+          {
+            "question_id": "analysis_purpose",
+            "mode": "selected_option",
+            "option_id": "migration_field_diagnosis"
+          }
+        ]
+      },
+      "recorded_result": {
+        "classification": "partial_result",
+        "summary": "CLI 도구로 분류했고 상주 웹 workload를 만들지 않는 partial 결과입니다.",
+        "priority_tags": [
+          "non_resident_workload",
+          "required_operational_inputs"
+        ],
+        "partial_reason": "레포 근거는 CLI 도구임을 확인하지만 어떤 실행 인자를 Kubernetes 작업으로 옮길지는 레포만으로 정할 수 없습니다.",
+        "evidence_result_checked": true,
+        "evidence_result": {
+          "schema_version": "evidence-result/v1",
+          "scope": {
+            "target_candidate_id": "jbang-cli",
+            "target_display_name": "JBang CLI 도구",
+            "repository_root": "jbangdev/jbang",
+            "source_path_filters": {
+              "include_paths": [
+                "build.gradle",
+                "readme.adoc",
+                "src/main/java/dev/jbang/Main.java"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "runtime",
+              "build",
+              "configuration"
+            ],
+            "selection_reason": "Gradle 빌드와 CLI entrypoint가 확인되지만 상주 HTTP 서버 근거는 없습니다."
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "jbang-build",
+              "property": "build_tool",
+              "value": "Gradle",
+              "evidence_ref": "build.gradle:3",
+              "origin": "repository_source"
+            },
+            {
+              "id": "jbang-entrypoint",
+              "property": "current_runtime",
+              "value": "Java command-line entrypoint dev.jbang.Main",
+              "evidence_ref": "build.gradle:394",
+              "origin": "repository_source"
+            }
+          ],
+          "user_input_context": [],
+          "required_inputs": [
+            {
+              "id": "runtime_invocation",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            },
+            {
+              "id": "resource_requests",
+              "reason": "repository_cannot_determine",
+              "needed_for": "capacity and scheduling decision",
+              "value": null,
+              "user_context_available": false
+            }
+          ],
+          "conflicts": [],
+          "secret_masking_events": [],
+          "no_invention_rules": [
+            "replicas",
+            "resource_requests",
+            "ingress_host",
+            "storage_class",
+            "production_secret_values"
+          ]
+        }
+      }
+    },
+    {
+      "repository": "spring-petclinic/spring-petclinic-rest",
+      "clone_url": "https://github.com/spring-petclinic/spring-petclinic-rest.git",
+      "revision": "c7b5f5e9e90af2e5b94a40dd77b2a53dc33f67bd",
+      "category": "spring_boot_web_application",
+      "expected_classification": "evidence_result_backed_diagnosis_package",
+      "canned_intake": {
+        "answers": [
+          {
+            "question_id": "application_shape",
+            "mode": "selected_option",
+            "option_id": "web_api"
+          },
+          {
+            "question_id": "current_execution_shape",
+            "mode": "selected_option",
+            "option_id": "unknown"
+          },
+          {
+            "question_id": "analysis_purpose",
+            "mode": "selected_option",
+            "option_id": "migration_field_diagnosis"
+          }
+        ]
+      },
+      "recorded_result": {
+        "classification": "evidence_result_backed_diagnosis_package",
+        "summary": "Spring Boot REST API 진단 패키지를 Evidence Result 근거로 만들 수 있습니다.",
+        "priority_tags": [
+          "required_operational_inputs"
+        ],
+        "evidence_result_checked": true,
+        "evidence_result": {
+          "schema_version": "evidence-result/v1",
+          "scope": {
+            "target_candidate_id": "petclinic-rest",
+            "target_display_name": "Spring Petclinic REST API",
+            "repository_root": "spring-petclinic/spring-petclinic-rest",
+            "source_path_filters": {
+              "include_paths": [
+                "pom.xml",
+                "readme.md",
+                "src/main/resources/application.properties",
+                "docker-compose.yml"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "runtime",
+              "networking",
+              "build",
+              "configuration",
+              "health"
+            ],
+            "selection_reason": "Spring Boot Web MVC, Actuator, Maven build, and Jib image publishing evidence point to one web API."
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "petclinic-runtime",
+              "property": "current_runtime",
+              "value": "Spring Boot web application",
+              "evidence_ref": "pom.xml:38",
+              "origin": "repository_source"
+            },
+            {
+              "id": "petclinic-port",
+              "property": "container_port",
+              "value": 9966,
+              "evidence_ref": "src/main/resources/application.properties:20",
+              "origin": "repository_source"
+            },
+            {
+              "id": "petclinic-health",
+              "property": "health_endpoint",
+              "value": "/actuator/health",
+              "evidence_ref": "readme.md:43",
+              "origin": "repository_source"
+            }
+          ],
+          "user_input_context": [],
+          "required_inputs": [
+            {
+              "id": "database_profile",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            }
+          ],
+          "conflicts": [],
+          "secret_masking_events": [],
+          "no_invention_rules": [
+            "replicas",
+            "resource_requests",
+            "ingress_host",
+            "storage_class",
+            "production_secret_values"
+          ]
+        },
+        "migration_diagnosis_package": {
+          "schema_version": "migration-diagnosis-package/v1",
+          "analysis_target": {
+            "target_candidate_id": "petclinic-rest",
+            "display_name": "Spring Petclinic REST API",
+            "repository_root": "spring-petclinic/spring-petclinic-rest",
+            "source_path_filters": {
+              "include_paths": [
+                "pom.xml",
+                "readme.md",
+                "src/main/resources/application.properties",
+                "docker-compose.yml"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "실행 방식",
+              "네트워크",
+              "빌드",
+              "설정",
+              "상태 확인"
+            ],
+            "selection_reason": "Spring Boot Web MVC, Actuator, Maven build, and Jib image publishing evidence point to one web API.",
+            "evidence_result_ref": "scope.target_candidate_id"
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "diagnosis-fact-petclinic-runtime",
+              "statement": "현재 실행 런타임 값은 Spring Boot web application로 확인되었습니다.",
+              "source_fact_id": "petclinic-runtime",
+              "evidence_ref": "pom.xml:38"
+            },
+            {
+              "id": "diagnosis-fact-petclinic-port",
+              "statement": "컨테이너 포트 값은 9966로 확인되었습니다.",
+              "source_fact_id": "petclinic-port",
+              "evidence_ref": "src/main/resources/application.properties:20"
+            },
+            {
+              "id": "diagnosis-fact-petclinic-health",
+              "statement": "health endpoint 값은 /actuator/health로 확인되었습니다.",
+              "source_fact_id": "petclinic-health",
+              "evidence_ref": "readme.md:43"
+            }
+          ],
+          "required_inputs": [
+            {
+              "id": "database_profile",
+              "statement": "database profile 값은 소스만으로 확정할 수 없습니다.",
+              "reason": "레포지토리만으로 결정할 수 없음",
+              "needed_for": "이관 판단",
+              "user_context_available": false,
+              "required_input_id": "database_profile"
+            }
+          ],
+          "migration_risks": [
+            {
+              "id": "risk-required-database_profile",
+              "risk_category": "미확인 운영 입력",
+              "summary": "database profile 값이 확정되지 않아 이관 판단 판단을 보류합니다.",
+              "required_input_id": "database_profile"
+            }
+          ],
+          "input_source_conflicts": [],
+          "follow_up_questions": [
+            {
+              "id": "question-database_profile",
+              "ask_to": "애플리케이션 팀 또는 운영 담당자",
+              "question": "database profile 값을 확인해 주세요.",
+              "why_needed": "이관 판단",
+              "source_required_input_id": "database_profile"
+            }
+          ],
+          "evidence_appendix": {
+            "scope": {
+              "target_candidate_id": "petclinic-rest",
+              "target_display_name": "Spring Petclinic REST API",
+              "repository_root": "spring-petclinic/spring-petclinic-rest",
+              "source_path_filters": {
+                "include_paths": [
+                  "pom.xml",
+                  "readme.md",
+                  "src/main/resources/application.properties",
+                  "docker-compose.yml"
+                ],
+                "exclude_paths": []
+              },
+              "analysis_topics": [
+                "runtime",
+                "networking",
+                "build",
+                "configuration",
+                "health"
+              ],
+              "selection_reason": "Spring Boot Web MVC, Actuator, Maven build, and Jib image publishing evidence point to one web API."
+            },
+            "source_confirmed_facts": [
+              {
+                "id": "petclinic-runtime",
+                "property": "current_runtime",
+                "value": "Spring Boot web application",
+                "evidence_ref": "pom.xml:38",
+                "origin": "repository_source"
+              },
+              {
+                "id": "petclinic-port",
+                "property": "container_port",
+                "value": 9966,
+                "evidence_ref": "src/main/resources/application.properties:20",
+                "origin": "repository_source"
+              },
+              {
+                "id": "petclinic-health",
+                "property": "health_endpoint",
+                "value": "/actuator/health",
+                "evidence_ref": "readme.md:43",
+                "origin": "repository_source"
+              }
+            ],
+            "user_input_context": [],
+            "required_inputs": [
+              {
+                "id": "database_profile",
+                "reason": "repository_cannot_determine",
+                "needed_for": "migration decision",
+                "value": null,
+                "user_context_available": false
+              }
+            ],
+            "conflicts": [],
+            "secret_masking_events": [],
+            "no_invention_rules": [
+              "replicas",
+              "resource_requests",
+              "ingress_host",
+              "storage_class",
+              "production_secret_values"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "repository": "ether/etherpad",
+      "clone_url": "https://github.com/ether/etherpad.git",
+      "revision": "2de5d10cafb37317c93b4ad814024de14846e6e5",
+      "category": "nodejs_web_application",
+      "expected_classification": "evidence_result_backed_diagnosis_package",
+      "canned_intake": {
+        "answers": [
+          {
+            "question_id": "application_shape",
+            "mode": "selected_option",
+            "option_id": "web_api"
+          },
+          {
+            "question_id": "current_execution_shape",
+            "mode": "selected_option",
+            "option_id": "docker_compose"
+          },
+          {
+            "question_id": "analysis_purpose",
+            "mode": "selected_option",
+            "option_id": "migration_field_diagnosis"
+          }
+        ]
+      },
+      "recorded_result": {
+        "classification": "evidence_result_backed_diagnosis_package",
+        "summary": "Node.js web server 진단 패키지를 만들 수 있고, 볼륨 의미는 후속 확인으로 남습니다.",
+        "priority_tags": [
+          "required_operational_inputs"
+        ],
+        "evidence_result_checked": true,
+        "evidence_result": {
+          "schema_version": "evidence-result/v1",
+          "scope": {
+            "target_candidate_id": "etherpad-server",
+            "target_display_name": "Etherpad Node.js 서버",
+            "repository_root": "ether/etherpad",
+            "source_path_filters": {
+              "include_paths": [
+                "package.json",
+                "src/package.json",
+                "Dockerfile",
+                "docker-compose.yml",
+                "settings.json.docker"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "runtime",
+              "networking",
+              "build",
+              "configuration",
+              "storage",
+              "health"
+            ],
+            "selection_reason": "Root workspace, server package, Dockerfile, and Compose all point to one collaborative editor web server."
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "etherpad-runtime",
+              "property": "current_runtime",
+              "value": "Node.js 24 server",
+              "evidence_ref": "package.json:48",
+              "origin": "repository_source"
+            },
+            {
+              "id": "etherpad-port",
+              "property": "container_port",
+              "value": 9001,
+              "evidence_ref": "Dockerfile:238",
+              "origin": "repository_source"
+            },
+            {
+              "id": "etherpad-dependency",
+              "property": "runtime_dependency",
+              "value": "PostgreSQL service in Compose",
+              "evidence_ref": "docker-compose.yml:1",
+              "origin": "repository_source"
+            }
+          ],
+          "user_input_context": [],
+          "required_inputs": [
+            {
+              "id": "volume_semantics",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            }
+          ],
+          "conflicts": [],
+          "secret_masking_events": [],
+          "no_invention_rules": [
+            "replicas",
+            "resource_requests",
+            "ingress_host",
+            "storage_class",
+            "production_secret_values"
+          ]
+        },
+        "migration_diagnosis_package": {
+          "schema_version": "migration-diagnosis-package/v1",
+          "analysis_target": {
+            "target_candidate_id": "etherpad-server",
+            "display_name": "Etherpad Node.js 서버",
+            "repository_root": "ether/etherpad",
+            "source_path_filters": {
+              "include_paths": [
+                "package.json",
+                "src/package.json",
+                "Dockerfile",
+                "docker-compose.yml",
+                "settings.json.docker"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "실행 방식",
+              "네트워크",
+              "빌드",
+              "설정",
+              "스토리지",
+              "상태 확인"
+            ],
+            "selection_reason": "Root workspace, server package, Dockerfile, and Compose all point to one collaborative editor web server.",
+            "evidence_result_ref": "scope.target_candidate_id"
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "diagnosis-fact-etherpad-runtime",
+              "statement": "현재 실행 런타임 값은 Node.js 24 server로 확인되었습니다.",
+              "source_fact_id": "etherpad-runtime",
+              "evidence_ref": "package.json:48"
+            },
+            {
+              "id": "diagnosis-fact-etherpad-port",
+              "statement": "컨테이너 포트 값은 9001로 확인되었습니다.",
+              "source_fact_id": "etherpad-port",
+              "evidence_ref": "Dockerfile:238"
+            },
+            {
+              "id": "diagnosis-fact-etherpad-dependency",
+              "statement": "runtime dependency 값은 PostgreSQL service in Compose로 확인되었습니다.",
+              "source_fact_id": "etherpad-dependency",
+              "evidence_ref": "docker-compose.yml:1"
+            }
+          ],
+          "required_inputs": [
+            {
+              "id": "volume_semantics",
+              "statement": "volume semantics 값은 소스만으로 확정할 수 없습니다.",
+              "reason": "레포지토리만으로 결정할 수 없음",
+              "needed_for": "이관 판단",
+              "user_context_available": false,
+              "required_input_id": "volume_semantics"
+            }
+          ],
+          "migration_risks": [
+            {
+              "id": "risk-required-volume_semantics",
+              "risk_category": "미확인 운영 입력",
+              "summary": "volume semantics 값이 확정되지 않아 이관 판단 판단을 보류합니다.",
+              "required_input_id": "volume_semantics"
+            }
+          ],
+          "input_source_conflicts": [],
+          "follow_up_questions": [
+            {
+              "id": "question-volume_semantics",
+              "ask_to": "애플리케이션 팀 또는 운영 담당자",
+              "question": "volume semantics 값을 확인해 주세요.",
+              "why_needed": "이관 판단",
+              "source_required_input_id": "volume_semantics"
+            }
+          ],
+          "evidence_appendix": {
+            "scope": {
+              "target_candidate_id": "etherpad-server",
+              "target_display_name": "Etherpad Node.js 서버",
+              "repository_root": "ether/etherpad",
+              "source_path_filters": {
+                "include_paths": [
+                  "package.json",
+                  "src/package.json",
+                  "Dockerfile",
+                  "docker-compose.yml",
+                  "settings.json.docker"
+                ],
+                "exclude_paths": []
+              },
+              "analysis_topics": [
+                "runtime",
+                "networking",
+                "build",
+                "configuration",
+                "storage",
+                "health"
+              ],
+              "selection_reason": "Root workspace, server package, Dockerfile, and Compose all point to one collaborative editor web server."
+            },
+            "source_confirmed_facts": [
+              {
+                "id": "etherpad-runtime",
+                "property": "current_runtime",
+                "value": "Node.js 24 server",
+                "evidence_ref": "package.json:48",
+                "origin": "repository_source"
+              },
+              {
+                "id": "etherpad-port",
+                "property": "container_port",
+                "value": 9001,
+                "evidence_ref": "Dockerfile:238",
+                "origin": "repository_source"
+              },
+              {
+                "id": "etherpad-dependency",
+                "property": "runtime_dependency",
+                "value": "PostgreSQL service in Compose",
+                "evidence_ref": "docker-compose.yml:1",
+                "origin": "repository_source"
+              }
+            ],
+            "user_input_context": [],
+            "required_inputs": [
+              {
+                "id": "volume_semantics",
+                "reason": "repository_cannot_determine",
+                "needed_for": "migration decision",
+                "value": null,
+                "user_context_available": false
+              }
+            ],
+            "conflicts": [],
+            "secret_masking_events": [],
+            "no_invention_rules": [
+              "replicas",
+              "resource_requests",
+              "ingress_host",
+              "storage_class",
+              "production_secret_values"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "repository": "pypa/pipx",
+      "clone_url": "https://github.com/pypa/pipx.git",
+      "revision": "51db06baa858265b22e791c7cd3e6fee925d7a0b",
+      "category": "plain_python_application",
+      "expected_classification": "partial_result",
+      "canned_intake": {
+        "answers": [
+          {
+            "question_id": "application_shape",
+            "mode": "selected_option",
+            "option_id": "unknown"
+          },
+          {
+            "question_id": "current_execution_shape",
+            "mode": "selected_option",
+            "option_id": "vm_or_baremetal"
+          },
+          {
+            "question_id": "analysis_purpose",
+            "mode": "selected_option",
+            "option_id": "migration_field_diagnosis"
+          }
+        ]
+      },
+      "recorded_result": {
+        "classification": "partial_result",
+        "summary": "Python CLI 도구로 분류했고 상주 workload 없이 partial 결과를 유지합니다.",
+        "priority_tags": [
+          "non_resident_workload",
+          "required_operational_inputs"
+        ],
+        "partial_reason": "레포 근거는 CLI 도구임을 확인하지만 어떤 작업 형태와 인자를 이관할지는 정할 수 없습니다.",
+        "evidence_result_checked": true,
+        "evidence_result": {
+          "schema_version": "evidence-result/v1",
+          "scope": {
+            "target_candidate_id": "pipx-cli",
+            "target_display_name": "pipx Python CLI",
+            "repository_root": "pypa/pipx",
+            "source_path_filters": {
+              "include_paths": [
+                "pyproject.toml",
+                "docs/README.md",
+                "src/pipx/main.py"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "runtime",
+              "build",
+              "configuration"
+            ],
+            "selection_reason": "pyproject entrypoint and README describe a local command-line tool, not a resident service."
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "pipx-build",
+              "property": "build_tool",
+              "value": "Hatchling",
+              "evidence_ref": "pyproject.toml:2",
+              "origin": "repository_source"
+            },
+            {
+              "id": "pipx-entrypoint",
+              "property": "current_runtime",
+              "value": "Python CLI entrypoint pipx.main:cli",
+              "evidence_ref": "pyproject.toml:44",
+              "origin": "repository_source"
+            }
+          ],
+          "user_input_context": [],
+          "required_inputs": [
+            {
+              "id": "job_arguments",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            },
+            {
+              "id": "writable_cache_paths",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            }
+          ],
+          "conflicts": [],
+          "secret_masking_events": [],
+          "no_invention_rules": [
+            "replicas",
+            "resource_requests",
+            "ingress_host",
+            "storage_class",
+            "production_secret_values"
+          ]
+        }
+      }
+    },
+    {
+      "repository": "searxng/searxng",
+      "clone_url": "https://github.com/searxng/searxng.git",
+      "revision": "6da6eee265daeb4a62ab638d6921522bf405de69",
+      "category": "python_web_application",
+      "expected_classification": "partial_result",
+      "canned_intake": {
+        "answers": [
+          {
+            "question_id": "application_shape",
+            "mode": "selected_option",
+            "option_id": "web_api"
+          },
+          {
+            "question_id": "current_execution_shape",
+            "mode": "selected_option",
+            "option_id": "docker_compose"
+          },
+          {
+            "question_id": "analysis_purpose",
+            "mode": "selected_option",
+            "option_id": "migration_field_diagnosis"
+          }
+        ]
+      },
+      "recorded_result": {
+        "classification": "partial_result",
+        "summary": "Python web 앱 근거는 있으나 이미지 provenance와 네트워크 정책이 남아 partial 결과입니다.",
+        "priority_tags": [
+          "source_context_boundary",
+          "required_operational_inputs"
+        ],
+        "partial_reason": "소스 실행 포트와 Compose 이미지 포트의 맥락이 달라 어느 쪽을 운영 기준으로 삼을지는 후속 확인이 필요합니다.",
+        "evidence_result_checked": true,
+        "evidence_result": {
+          "schema_version": "evidence-result/v1",
+          "scope": {
+            "target_candidate_id": "searxng-web",
+            "target_display_name": "SearXNG Python Web App",
+            "repository_root": "searxng/searxng",
+            "source_path_filters": {
+              "include_paths": [
+                "setup.py",
+                "requirements.txt",
+                "Makefile",
+                "searx/settings.yml",
+                "container/docker-compose.yml"
+              ],
+              "exclude_paths": []
+            },
+            "analysis_topics": [
+              "runtime",
+              "networking",
+              "build",
+              "configuration",
+              "storage"
+            ],
+            "selection_reason": "Python web entrypoint and container Compose evidence exist, but source runtime and packaged container context differ."
+          },
+          "source_confirmed_facts": [
+            {
+              "id": "searxng-runtime",
+              "property": "current_runtime",
+              "value": "Python WSGI web application",
+              "evidence_ref": "setup.py:18",
+              "origin": "repository_source"
+            },
+            {
+              "id": "searxng-source-port",
+              "property": "source_port",
+              "value": 8888,
+              "evidence_ref": "searx/settings.yml:95",
+              "origin": "repository_source"
+            },
+            {
+              "id": "searxng-compose-port",
+              "property": "container_port",
+              "value": 8080,
+              "evidence_ref": "container/docker-compose.yml:9",
+              "origin": "repository_source"
+            }
+          ],
+          "user_input_context": [],
+          "required_inputs": [
+            {
+              "id": "image_build_provenance",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            },
+            {
+              "id": "outbound_network_policy",
+              "reason": "repository_cannot_determine",
+              "needed_for": "migration decision",
+              "value": null,
+              "user_context_available": false
+            }
+          ],
+          "conflicts": [],
+          "secret_masking_events": [],
+          "no_invention_rules": [
+            "replicas",
+            "resource_requests",
+            "ingress_host",
+            "storage_class",
+            "production_secret_values"
+          ]
+        }
+      }
+    }
+  ],
+  "acceptable_result_classifications": [
+    "evidence_result_backed_diagnosis_package",
+    "partial_result",
+    "explicit_failure"
+  ],
+  "failure_policy": {
+    "failed_stage_required": true,
+    "reason_required": true,
+    "generic_kubernetes_advice_forbidden": true
+  },
+  "summary_policy": {
+    "next_implementation_priorities_required": true
+  }
+}

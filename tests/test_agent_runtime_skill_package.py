@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,69 @@ def test_runtime_adapter_pack_lists_four_supported_runtimes() -> None:
         "opencode": "adapters/opencode/COMMAND.md",
         "qwen_code": "adapters/qwen-code/COMMAND.md",
     }
+
+
+def test_package_lists_qwen_code_installable_extension() -> None:
+    validator = _load_validator()
+
+    entries = validator.load_manifest_installable_entries(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    assert entries == {
+        "qwen_code_extension": "install/qwen-code-extension",
+    }
+
+
+def test_qwen_code_extension_is_installable_skill_package() -> None:
+    validator = _load_validator()
+    package = Path("skills/kubernetes-field-assessment")
+
+    manifest = validator.load_qwen_extension_manifest(package)
+    skill_path = validator.qwen_extension_skill_file(package)
+    skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert manifest == {
+        "name": "kubernetes-field-assessment",
+        "version": "0.1.0",
+        "skills": "skills",
+    }
+    assert skill_path == (
+        package
+        / "install/qwen-code-extension/skills/kubernetes-field-assessment/SKILL.md"
+    )
+    assert skill_text.startswith("---\n")
+    assert "name: kubernetes-field-assessment" in skill_text
+    assert "description: Use when" in skill_text
+    for canonical_file in validator.REQUIRED_CANONICAL_FILES:
+        assert canonical_file in skill_text
+        bundled = (
+            package
+            / "install/qwen-code-extension/skills/kubernetes-field-assessment"
+            / canonical_file
+        )
+        assert bundled.read_bytes() == (package / canonical_file).read_bytes()
+
+
+def test_validator_rejects_qwen_code_extension_canonical_drift(
+    tmp_path: Path,
+) -> None:
+    validator = _load_validator()
+    package = tmp_path / "package"
+    shutil.copytree(Path("skills/kubernetes-field-assessment"), package)
+    bundled_workflow = (
+        package
+        / "install/qwen-code-extension/skills/kubernetes-field-assessment"
+        / "canonical/workflow.md"
+    )
+    bundled_workflow.write_text("stale workflow copy\n", encoding="utf-8")
+
+    errors = validator.validate_package(package)
+
+    assert (
+        "Qwen Code extension canonical copy differs from source: "
+        "canonical/workflow.md"
+    ) in errors
 
 
 def test_runtime_adapters_preserve_canonical_rules_and_drift_guards() -> None:

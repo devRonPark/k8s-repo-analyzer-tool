@@ -39,6 +39,20 @@ REQUIRED_RUNTIME_ADAPTERS = {
     "qwen_code": "adapters/qwen-code/COMMAND.md",
 }
 REQUIRED_ADAPTER_FILES = tuple(REQUIRED_RUNTIME_ADAPTERS.values())
+REQUIRED_INSTALLABLES = {
+    "qwen_code_extension": "install/qwen-code-extension",
+}
+QWEN_EXTENSION_ROOT = Path(REQUIRED_INSTALLABLES["qwen_code_extension"])
+QWEN_EXTENSION_MANIFEST_FILE = QWEN_EXTENSION_ROOT / "qwen-extension.json"
+QWEN_EXTENSION_SKILL_ROOT = (
+    QWEN_EXTENSION_ROOT / "skills/kubernetes-field-assessment"
+)
+QWEN_EXTENSION_SKILL_FILE = QWEN_EXTENSION_SKILL_ROOT / "SKILL.md"
+QWEN_EXTENSION_REQUIRED_MANIFEST = {
+    "name": "kubernetes-field-assessment",
+    "version": "0.1.0",
+    "skills": "skills",
+}
 REQUIRED_TERMS = (
     "Agent Runtime Skill Package",
     "Kubernetes Migration Field Assessment",
@@ -318,6 +332,7 @@ def validate_package(package_root: Path) -> list[str]:
 
     canonical_files, adapter_files, manifest_errors = _manifest_paths(package_root)
     adapter_entries = load_manifest_adapter_entries(package_root)
+    installable_entries = load_manifest_installable_entries(package_root)
     errors.extend(manifest_errors)
     for expected in REQUIRED_CANONICAL_FILES:
         if expected not in canonical_files:
@@ -330,6 +345,12 @@ def validate_package(package_root: Path) -> list[str]:
             errors.append(
                 "manifest does not list runtime adapter entry: "
                 f"{adapter_name}: {adapter_path}"
+            )
+    for installable_name, installable_path in REQUIRED_INSTALLABLES.items():
+        if installable_entries.get(installable_name) != installable_path:
+            errors.append(
+                "manifest does not list installable package entry: "
+                f"{installable_name}: {installable_path}"
             )
 
     canonical_texts: list[str] = []
@@ -377,10 +398,32 @@ def validate_package(package_root: Path) -> list[str]:
     if not adapter_smoke_paths(package_root):
         errors.append("no runtime adapter declares workflow smoke path")
 
+    _validate_qwen_code_extension(package_root, canonical_files, errors)
+
     return errors
 
 
 def load_manifest_adapter_entries(package_root: Path) -> dict[str, str]:
+    return _load_manifest_mapping(package_root, "adapters")
+
+
+def load_manifest_installable_entries(package_root: Path) -> dict[str, str]:
+    return _load_manifest_mapping(package_root, "installables")
+
+
+def load_qwen_extension_manifest(package_root: Path) -> dict[str, Any]:
+    path = package_root / QWEN_EXTENSION_MANIFEST_FILE
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Qwen Code extension manifest root must be an object")
+    return payload
+
+
+def qwen_extension_skill_file(package_root: Path) -> Path:
+    return package_root / QWEN_EXTENSION_SKILL_FILE
+
+
+def _load_manifest_mapping(package_root: Path, section_name: str) -> dict[str, str]:
     path = package_root / REQUIRED_MANIFEST_FILE
     if not path.is_file():
         return {}
@@ -389,13 +432,10 @@ def load_manifest_adapter_entries(package_root: Path) -> dict[str, str]:
     section: str | None = None
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if stripped == "canonical:":
-            section = "canonical"
+        if _is_manifest_section_header(line, stripped):
+            section = stripped[:-1]
             continue
-        if stripped == "adapters:":
-            section = "adapters"
-            continue
-        if section == "adapters" and ":" in stripped:
+        if section == section_name and ":" in stripped:
             key, value = stripped.split(":", 1)
             entries[key.strip()] = value.strip()
     return entries
@@ -1434,6 +1474,83 @@ def _validate_poc_validation_matrix(package_root: Path, errors: list[str]) -> No
         errors.append("POC validation summary must include priorities")
 
 
+def _validate_qwen_code_extension(
+    package_root: Path,
+    canonical_files: list[str],
+    errors: list[str],
+) -> None:
+    manifest_path = package_root / QWEN_EXTENSION_MANIFEST_FILE
+    if not manifest_path.is_file():
+        errors.append(
+            f"missing Qwen Code extension manifest: {QWEN_EXTENSION_MANIFEST_FILE}"
+        )
+    else:
+        try:
+            manifest = load_qwen_extension_manifest(package_root)
+        except json.JSONDecodeError as exc:
+            errors.append(f"invalid Qwen Code extension manifest JSON: {exc}")
+            manifest = {}
+        except (OSError, ValueError) as exc:
+            errors.append(str(exc))
+            manifest = {}
+        if manifest != QWEN_EXTENSION_REQUIRED_MANIFEST:
+            errors.append("Qwen Code extension manifest is invalid")
+
+    skill_path = qwen_extension_skill_file(package_root)
+    if not skill_path.is_file():
+        errors.append(f"missing Qwen Code SKILL.md: {QWEN_EXTENSION_SKILL_FILE}")
+        return
+
+    skill_text = skill_path.read_text(encoding="utf-8")
+    frontmatter, frontmatter_errors = _parse_skill_frontmatter(skill_text)
+    errors.extend(frontmatter_errors)
+    if frontmatter.get("name") != QWEN_EXTENSION_REQUIRED_MANIFEST["name"]:
+        errors.append("Qwen Code SKILL.md frontmatter name is invalid")
+    description = frontmatter.get("description", "")
+    if not description.startswith("Use when "):
+        errors.append("Qwen Code SKILL.md description must start with 'Use when '")
+
+    if "canonical/" not in skill_text:
+        errors.append("Qwen Code SKILL.md must reference bundled canonical files")
+    for canonical_file in canonical_files:
+        if canonical_file not in skill_text:
+            errors.append(
+                f"Qwen Code SKILL.md does not reference {canonical_file}"
+            )
+        source = package_root / canonical_file
+        bundled = package_root / QWEN_EXTENSION_SKILL_ROOT / canonical_file
+        if not bundled.is_file():
+            errors.append(
+                f"missing Qwen Code extension canonical file: {canonical_file}"
+            )
+            continue
+        if source.is_file() and source.read_bytes() != bundled.read_bytes():
+            errors.append(
+                "Qwen Code extension canonical copy differs from source: "
+                f"{canonical_file}"
+            )
+
+
+def _parse_skill_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
+    lines = text.splitlines()
+    if not lines or lines[0] != "---":
+        return {}, ["Qwen Code SKILL.md must start with YAML frontmatter"]
+    try:
+        end = lines[1:].index("---") + 1
+    except ValueError:
+        return {}, ["Qwen Code SKILL.md frontmatter must be closed"]
+
+    frontmatter: dict[str, str] = {}
+    errors: list[str] = []
+    for line in lines[1:end]:
+        if ":" not in line:
+            errors.append("Qwen Code SKILL.md frontmatter line is invalid")
+            continue
+        key, value = line.split(":", 1)
+        frontmatter[key.strip()] = value.strip().strip('"').strip("'")
+    return frontmatter, errors
+
+
 def _validate_poc_canned_intake(
     case: dict[str, Any],
     questions_by_id: dict[str, dict[str, Any]],
@@ -2163,11 +2280,8 @@ def _manifest_paths(package_root: Path) -> tuple[list[str], list[str], list[str]
     section: str | None = None
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if stripped == "canonical:":
-            section = "canonical"
-            continue
-        if stripped == "adapters:":
-            section = "adapters"
+        if _is_manifest_section_header(line, stripped):
+            section = stripped[:-1]
             continue
         if section == "canonical" and stripped.startswith("- "):
             canonical.append(stripped[2:].strip())
@@ -2182,6 +2296,10 @@ def _manifest_paths(package_root: Path) -> tuple[list[str], list[str], list[str]
     if not adapters:
         errors.append("manifest has no adapter file entries")
     return canonical, adapters, errors
+
+
+def _is_manifest_section_header(line: str, stripped: str) -> bool:
+    return bool(stripped) and not line.startswith((" ", "\t")) and stripped.endswith(":")
 
 
 def main(argv: list[str] | None = None) -> int:

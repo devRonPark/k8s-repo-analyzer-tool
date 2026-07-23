@@ -1,0 +1,52 @@
+{
+  "schema_version": "migration-diagnosis-package/v1",
+  "diagnosis_package": {
+    "required_sections": [
+      "analysis_target",
+      "source_confirmed_facts",
+      "required_inputs",
+      "migration_risks",
+      "input_source_conflicts",
+      "follow_up_questions",
+      "evidence_appendix"
+    ],
+    "field_language": {
+      "audience": [
+        "kubernetes_migration_engineer",
+        "customer_or_application_team"
+      ],
+      "internal_terms_only_in": [
+        "evidence_appendix"
+      ]
+    },
+    "traceability": {
+      "major_judgments_require_reference": true,
+      "allowed_reference_fields": [
+        "source_fact_id",
+        "user_context_id",
+        "required_input_id",
+        "conflict_id",
+        "evidence_ref",
+        "evidence_result_ref"
+      ]
+    }
+  },
+  "follow_up_question_contract": {
+    "required_fields": [
+      "id",
+      "ask_to",
+      "question",
+      "why_needed"
+    ],
+    "reference_fields": [
+      "source_required_input_id",
+      "source_conflict_id"
+    ]
+  },
+  "non_goals": [
+    "manifest_generation",
+    "replica_guess",
+    "resource_sizing_guess",
+    "secret_value_output"
+  ]
+}
