@@ -17,6 +17,7 @@ REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE = (
 REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE = (
     "canonical/migration-diagnosis-package.json"
 )
+REQUIRED_POC_VALIDATION_FILE = "canonical/poc-validation.json"
 REQUIRED_CANONICAL_FILES = (
     "canonical/workflow.md",
     "canonical/evidence-rules.md",
@@ -28,6 +29,7 @@ REQUIRED_CANONICAL_FILES = (
     REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE,
     REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE,
     "canonical/diagnosis-package-rubric.md",
+    REQUIRED_POC_VALIDATION_FILE,
     "canonical/validation.md",
 )
 REQUIRED_RUNTIME_ADAPTERS = {
@@ -203,6 +205,53 @@ REQUIRED_DIAGNOSIS_NON_GOALS = (
     "resource_sizing_guess",
     "secret_value_output",
 )
+POC_RESULT_CLASSIFICATIONS = (
+    "evidence_result_backed_diagnosis_package",
+    "partial_result",
+    "explicit_failure",
+)
+REQUIRED_POC_REPOSITORIES = (
+    "jbangdev/jbang",
+    "spring-petclinic/spring-petclinic-rest",
+    "ether/etherpad",
+    "pypa/pipx",
+    "searxng/searxng",
+)
+REQUIRED_POC_REVISIONS = (
+    "351b42b46e72ec442f4593f993c36e344c506dad",
+    "c7b5f5e9e90af2e5b94a40dd77b2a53dc33f67bd",
+    "2de5d10cafb37317c93b4ad814024de14846e6e5",
+    "51db06baa858265b22e791c7cd3e6fee925d7a0b",
+    "6da6eee265daeb4a62ab638d6921522bf405de69",
+)
+REQUIRED_POC_CATEGORIES = (
+    "plain_java_application",
+    "spring_boot_web_application",
+    "nodejs_web_application",
+    "plain_python_application",
+    "python_web_application",
+)
+REQUIRED_POC_CLASSIFICATIONS = (
+    "partial_result",
+    "evidence_result_backed_diagnosis_package",
+    "evidence_result_backed_diagnosis_package",
+    "partial_result",
+    "partial_result",
+)
+REQUIRED_POC_INTAKE_QUESTION_IDS = (
+    "application_shape",
+    "current_execution_shape",
+    "analysis_purpose",
+)
+GENERIC_KUBERNETES_ADVICE_PATTERNS = (
+    "generic kubernetes advice",
+    "use a deployment",
+    "create a deployment",
+    "deployment, service",
+    "service and ingress",
+    "replicas: 3",
+    "replica count of 3",
+)
 MASKED_SECRET_VALUE = "[MASKED_SECRET]"
 SECRET_PROPERTY_PATTERNS = (
     "password",
@@ -304,6 +353,7 @@ def validate_package(package_root: Path) -> list[str]:
     _validate_candidate_recommendation(package_root, errors)
     _validate_confirmed_scope_evidence_result(package_root, errors)
     _validate_migration_diagnosis_package_contract(package_root, errors)
+    _validate_poc_validation_matrix(package_root, errors)
 
     for relative in adapter_files:
         path = package_root / relative
@@ -313,7 +363,7 @@ def validate_package(package_root: Path) -> list[str]:
         text = path.read_text(encoding="utf-8")
         if "canonical/" not in text:
             errors.append(f"{relative} does not reference canonical/")
-        for canonical_file in canonical_files:
+        for canonical_file in adapter_required_canonical_files(canonical_files):
             canonical_ref = canonical_file.replace("canonical/", "../../canonical/")
             if canonical_ref not in text:
                 errors.append(f"{relative} does not reference {canonical_ref}")
@@ -362,6 +412,14 @@ def adapter_smoke_paths(package_root: Path) -> list[str]:
         if all(phrase in text for phrase in REQUIRED_ADAPTER_SMOKE_PATH_PHRASES):
             smoke_paths.append(relative)
     return smoke_paths
+
+
+def adapter_required_canonical_files(canonical_files: list[str]) -> list[str]:
+    return [
+        canonical_file
+        for canonical_file in canonical_files
+        if canonical_file != REQUIRED_POC_VALIDATION_FILE
+    ]
 
 
 def load_intake_card(package_root: Path) -> dict[str, Any]:
@@ -425,6 +483,22 @@ def load_migration_diagnosis_package(package_root: Path) -> dict[str, Any]:
     if not isinstance(contract, dict):
         raise ValueError("migration diagnosis package root must be an object")
     return contract
+
+
+def load_poc_validation_matrix(package_root: Path) -> dict[str, Any]:
+    path = package_root / REQUIRED_POC_VALIDATION_FILE
+    matrix = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(matrix, dict):
+        raise ValueError("POC validation matrix root must be an object")
+    return matrix
+
+
+def poc_validation_cases(package_root: Path) -> list[dict[str, Any]]:
+    matrix = load_poc_validation_matrix(package_root)
+    cases = matrix.get("repositories", [])
+    if not isinstance(cases, list):
+        raise ValueError("POC validation repositories must be a list")
+    return [dict(case) for case in cases if isinstance(case, dict)]
 
 
 def resolve_candidate_selection(
@@ -625,6 +699,118 @@ def build_migration_diagnosis_package(
     if errors:
         raise ValueError("; ".join(errors))
     return package
+
+
+def run_poc_validation_matrix(
+    package_root: Path,
+    workflow_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    diagnosis_contract = load_migration_diagnosis_package(package_root)
+    results = []
+    for case in poc_validation_cases(package_root):
+        recorded = (
+            workflow_runner(case)
+            if workflow_runner is not None
+            else dict(case.get("recorded_result", {}))
+        )
+        result = _poc_recorded_workflow_result(case, recorded)
+        results.append(
+            classify_poc_workflow_result(
+                result,
+                diagnosis_contract=diagnosis_contract,
+            )
+        )
+    return results
+
+
+def classify_poc_workflow_result(
+    result: dict[str, Any],
+    *,
+    diagnosis_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    classified = dict(result)
+    errors = _poc_workflow_result_errors(
+        result,
+        diagnosis_contract=diagnosis_contract,
+    )
+    requested_classification = result.get("classification")
+    if errors:
+        classification = "invalid_result"
+    elif requested_classification in POC_RESULT_CLASSIFICATIONS:
+        classification = str(requested_classification)
+    else:
+        classification = "invalid_result"
+        errors.append(
+            f"unsupported POC workflow classification: {requested_classification}"
+        )
+
+    classified["classification"] = classification
+    classified["validation_errors"] = errors
+    classified["generic_kubernetes_advice_substituted"] = (
+        _contains_generic_kubernetes_advice(result)
+    )
+    return classified
+
+
+def summarize_poc_validation_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {
+        "evidence_result_backed_diagnosis_package": 0,
+        "partial_result": 0,
+        "explicit_failure": 0,
+        "invalid_result": 0,
+    }
+    priority_tags: set[str] = set()
+    for result in results:
+        classification = result.get("classification", "invalid_result")
+        if classification not in counts:
+            classification = "invalid_result"
+        counts[classification] += 1
+        priority_tags.update(result.get("priority_tags", []))
+
+    priorities = []
+    ordered_priority_tags = (
+        "non_resident_workload",
+        "source_context_boundary",
+        "required_operational_inputs",
+        "failure_recovery",
+    )
+    priority_text = {
+        "non_resident_workload": (
+            "Represent CLI/tooling repositories as non-resident or Job-like "
+            "migration candidates without forcing a Deployment."
+        ),
+        "source_context_boundary": (
+            "Deepen source/container context handling where repository and "
+            "packaged-image ports or images differ."
+        ),
+        "required_operational_inputs": (
+            "Keep required operational inputs prominent in the diagnosis "
+            "package instead of filling defaults."
+        ),
+        "failure_recovery": (
+            "Preserve failed-stage and reason details when a workflow cannot "
+            "produce evidence-backed output."
+        ),
+    }
+    for tag in ordered_priority_tags:
+        if tag in priority_tags:
+            priorities.append(priority_text[tag])
+    if not priorities:
+        priorities.append("Continue expanding fixture-backed validation coverage.")
+
+    return {
+        "total_repositories": len(results),
+        "classification_counts": counts,
+        "repositories": [
+            {
+                "repository": result.get("repository"),
+                "classification": result.get("classification"),
+                "summary": result.get("summary", ""),
+            }
+            for result in results
+        ],
+        "next_implementation_priorities": priorities,
+    }
 
 
 def validate_migration_diagnosis_package(
@@ -1134,6 +1320,259 @@ def _validate_migration_diagnosis_package_contract(
         REQUIRED_DIAGNOSIS_NON_GOALS
     ).issubset(set(non_goals)):
         errors.append("migration diagnosis non-goals are incomplete")
+
+
+def _validate_poc_validation_matrix(package_root: Path, errors: list[str]) -> None:
+    path = package_root / REQUIRED_POC_VALIDATION_FILE
+    if not path.is_file():
+        errors.append(f"missing POC validation file: {REQUIRED_POC_VALIDATION_FILE}")
+        return
+    try:
+        matrix = load_poc_validation_matrix(package_root)
+    except json.JSONDecodeError as exc:
+        errors.append(f"invalid POC validation JSON: {exc}")
+        return
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+        return
+
+    if matrix.get("schema_version") != "field-assessment-poc-validation/v1":
+        errors.append(
+            "POC validation schema_version must be "
+            "field-assessment-poc-validation/v1"
+        )
+
+    cases = matrix.get("repositories")
+    if not isinstance(cases, list):
+        errors.append("POC validation repositories must be a list")
+        return
+    if [case.get("repository") for case in cases if isinstance(case, dict)] != list(
+        REQUIRED_POC_REPOSITORIES
+    ):
+        errors.append("POC validation repositories must match the fixed five-repo set")
+    if [case.get("revision") for case in cases if isinstance(case, dict)] != list(
+        REQUIRED_POC_REVISIONS
+    ):
+        errors.append("POC validation revisions must match the pinned SHAs")
+    if [case.get("category") for case in cases if isinstance(case, dict)] != list(
+        REQUIRED_POC_CATEGORIES
+    ):
+        errors.append("POC validation categories are incomplete")
+    if [
+        case.get("expected_classification")
+        for case in cases
+        if isinstance(case, dict)
+    ] != list(REQUIRED_POC_CLASSIFICATIONS):
+        errors.append("POC validation expected classifications are incomplete")
+
+    if set(matrix.get("acceptable_result_classifications", [])) != set(
+        POC_RESULT_CLASSIFICATIONS
+    ):
+        errors.append("POC validation accepted classifications are invalid")
+
+    failure_policy = matrix.get("failure_policy", {})
+    if not isinstance(failure_policy, dict):
+        errors.append("POC validation must define failure policy")
+    else:
+        for field in (
+            "failed_stage_required",
+            "reason_required",
+            "generic_kubernetes_advice_forbidden",
+        ):
+            if failure_policy.get(field) is not True:
+                errors.append(f"POC validation failure_policy.{field} must be true")
+
+    summary_policy = matrix.get("summary_policy", {})
+    if not isinstance(summary_policy, dict) or summary_policy.get(
+        "next_implementation_priorities_required"
+    ) is not True:
+        errors.append("POC validation must require next implementation priorities")
+
+    try:
+        intake_card = load_intake_card(package_root)
+    except (json.JSONDecodeError, OSError, ValueError):
+        return
+    questions_by_id = {
+        question["id"]: question
+        for question in intake_card.get("questions", [])
+        if isinstance(question, dict) and isinstance(question.get("id"), str)
+    }
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            errors.append(f"POC validation repositories[{index}] must be an object")
+            continue
+        if not re.fullmatch(r"[0-9a-f]{40}", str(case.get("revision", ""))):
+            errors.append(f"POC validation repositories[{index}] revision is invalid")
+        clone_url = case.get("clone_url")
+        repository = case.get("repository")
+        if clone_url != f"https://github.com/{repository}.git":
+            errors.append(f"POC validation repositories[{index}] clone URL is invalid")
+        _validate_poc_canned_intake(case, questions_by_id, errors, index)
+
+    try:
+        results = run_poc_validation_matrix(package_root)
+    except (KeyError, TypeError, ValueError) as exc:
+        errors.append(f"POC validation recorded results are invalid: {exc}")
+        return
+    for index, result in enumerate(results):
+        for error in result.get("validation_errors", []):
+            errors.append(
+                f"POC validation repositories[{index}] recorded result invalid: "
+                f"{error}"
+            )
+        expected = cases[index].get("expected_classification")
+        actual = result.get("classification")
+        if actual != expected:
+            errors.append(
+                f"POC validation repositories[{index}] expected {expected}, got {actual}"
+            )
+    summary = summarize_poc_validation_results(results)
+    if (
+        summary_policy.get("next_implementation_priorities_required") is True
+        and not summary.get("next_implementation_priorities")
+    ):
+        errors.append("POC validation summary must include priorities")
+
+
+def _validate_poc_canned_intake(
+    case: dict[str, Any],
+    questions_by_id: dict[str, dict[str, Any]],
+    errors: list[str],
+    index: int,
+) -> None:
+    canned_intake = case.get("canned_intake")
+    if not isinstance(canned_intake, dict):
+        errors.append(f"POC validation repositories[{index}] missing canned intake")
+        return
+    answers = canned_intake.get("answers")
+    if not isinstance(answers, list):
+        errors.append(f"POC validation repositories[{index}] canned intake is invalid")
+        return
+    question_ids = [
+        answer.get("question_id")
+        for answer in answers
+        if isinstance(answer, dict)
+    ]
+    if question_ids != list(REQUIRED_POC_INTAKE_QUESTION_IDS):
+        errors.append(
+            f"POC validation repositories[{index}] canned intake questions are invalid"
+        )
+    for answer in answers:
+        if not isinstance(answer, dict):
+            continue
+        question = questions_by_id.get(str(answer.get("question_id")))
+        if question is None:
+            errors.append(
+                f"POC validation repositories[{index}] intake question is unknown"
+            )
+            continue
+        if answer.get("mode") != "selected_option":
+            errors.append(
+                f"POC validation repositories[{index}] intake must use canned choices"
+            )
+        option_ids = {
+            option.get("id")
+            for option in question.get("options", [])
+            if isinstance(option, dict)
+        }
+        if answer.get("option_id") not in option_ids:
+            errors.append(
+                f"POC validation repositories[{index}] intake option is invalid"
+            )
+
+
+def _poc_recorded_workflow_result(
+    case: dict[str, Any],
+    recorded: dict[str, Any],
+) -> dict[str, Any]:
+    result = {
+        "repository": case["repository"],
+        "revision": case["revision"],
+        "category": case["category"],
+        "expected_classification": case["expected_classification"],
+        "classification": recorded.get("classification"),
+        "summary": recorded.get("summary", ""),
+        "priority_tags": list(recorded.get("priority_tags", [])),
+        "canned_intake": case["canned_intake"],
+    }
+    for field in (
+        "evidence_result_checked",
+        "evidence_result",
+        "migration_diagnosis_package",
+        "partial_reason",
+        "failure",
+    ):
+        if field in recorded:
+            result[field] = recorded[field]
+    return result
+
+
+def _poc_workflow_result_errors(
+    result: dict[str, Any],
+    *,
+    diagnosis_contract: dict[str, Any] | None,
+) -> list[str]:
+    errors = []
+    classification = result.get("classification")
+    if classification == "explicit_failure":
+        failure = result.get("failure")
+        if not isinstance(failure, dict):
+            errors.append("failed result must include failure object")
+            failure = {}
+        if not failure.get("failed_stage"):
+            errors.append("failed result must include failed_stage")
+        if not failure.get("reason"):
+            errors.append("failed result must include reason")
+    elif classification == "partial_result":
+        if not result.get("partial_reason"):
+            errors.append("partial result must include partial_reason")
+        _validate_poc_evidence_result(result, errors)
+    elif classification == "evidence_result_backed_diagnosis_package":
+        _validate_poc_evidence_result(result, errors)
+        package = result.get("migration_diagnosis_package")
+        if not isinstance(package, dict):
+            errors.append("diagnosis package result must include package")
+        elif not package.get("evidence_appendix", {}).get("source_confirmed_facts"):
+            errors.append("diagnosis package must include evidence-backed facts")
+        elif diagnosis_contract is not None:
+            errors.extend(
+                validate_migration_diagnosis_package(diagnosis_contract, package)
+            )
+    else:
+        errors.append(f"unsupported POC workflow classification: {classification}")
+
+    if _contains_generic_kubernetes_advice(result):
+        errors.append("failed result must not substitute generic Kubernetes advice")
+    return errors
+
+
+def _validate_poc_evidence_result(
+    result: dict[str, Any],
+    errors: list[str],
+) -> None:
+    evidence_result = result.get("evidence_result")
+    if not isinstance(evidence_result, dict):
+        errors.append("POC result must include evidence_result")
+        return
+    if evidence_result.get("schema_version") != "evidence-result/v1":
+        errors.append("POC evidence_result schema_version is invalid")
+    if result.get("evidence_result_checked") is not True:
+        errors.append("POC evidence_result must be recorded as checked")
+    if not evidence_result.get("source_confirmed_facts"):
+        errors.append("POC evidence_result must include source-confirmed facts")
+    if not evidence_result.get("no_invention_rules"):
+        errors.append("POC evidence_result must preserve no-invention rules")
+
+
+def _contains_generic_kubernetes_advice(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_contains_generic_kubernetes_advice(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_generic_kubernetes_advice(item) for item in value)
+    if not isinstance(value, str):
+        return False
+    normalized = value.lower()
+    return any(pattern in normalized for pattern in GENERIC_KUBERNETES_ADVICE_PATTERNS)
 
 
 def _diagnosis_analysis_target(evidence_result: dict[str, Any]) -> dict[str, Any]:

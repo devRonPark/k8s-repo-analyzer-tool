@@ -80,8 +80,12 @@ def test_adapters_reference_every_manifest_canonical_file() -> None:
     assert errors == []
     for adapter in adapter_files:
         text = (package / adapter).read_text(encoding="utf-8")
-        for canonical_file in canonical_files:
+        for canonical_file in validator.adapter_required_canonical_files(canonical_files):
             assert canonical_file.replace("canonical/", "../../canonical/") in text
+        assert validator.REQUIRED_POC_VALIDATION_FILE.replace(
+            "canonical/",
+            "../../canonical/",
+        ) not in text
 
 
 def test_runtime_adapter_pack_lists_four_supported_runtimes() -> None:
@@ -1202,6 +1206,218 @@ def test_migration_diagnosis_package_validation_rejects_references_missing_from_
     )
 
 
+def test_poc_validation_matrix_defines_fixed_repositories_and_canned_intake() -> None:
+    validator = _load_validator()
+
+    matrix = validator.load_poc_validation_matrix(
+        Path("skills/kubernetes-field-assessment")
+    )
+    cases = validator.poc_validation_cases(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    assert matrix["schema_version"] == "field-assessment-poc-validation/v1"
+    assert [case["repository"] for case in cases] == [
+        "jbangdev/jbang",
+        "spring-petclinic/spring-petclinic-rest",
+        "ether/etherpad",
+        "pypa/pipx",
+        "searxng/searxng",
+    ]
+    assert [case["revision"] for case in cases] == [
+        "351b42b46e72ec442f4593f993c36e344c506dad",
+        "c7b5f5e9e90af2e5b94a40dd77b2a53dc33f67bd",
+        "2de5d10cafb37317c93b4ad814024de14846e6e5",
+        "51db06baa858265b22e791c7cd3e6fee925d7a0b",
+        "6da6eee265daeb4a62ab638d6921522bf405de69",
+    ]
+    for case in cases:
+        answers = case["canned_intake"]["answers"]
+        assert {answer["question_id"] for answer in answers} == {
+            "application_shape",
+            "current_execution_shape",
+            "analysis_purpose",
+        }
+        assert all(answer["mode"] == "selected_option" for answer in answers)
+        assert case["recorded_result"]["classification"] == (
+            case["expected_classification"]
+        )
+        assert case["expected_classification"] in {
+            "evidence_result_backed_diagnosis_package",
+            "partial_result",
+            "explicit_failure",
+        }
+
+
+def test_poc_validation_run_classifies_all_five_outcomes_without_generic_advice() -> None:
+    validator = _load_validator()
+
+    results = validator.run_poc_validation_matrix(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    assert [result["repository"] for result in results] == [
+        "jbangdev/jbang",
+        "spring-petclinic/spring-petclinic-rest",
+        "ether/etherpad",
+        "pypa/pipx",
+        "searxng/searxng",
+    ]
+    assert [result["classification"] for result in results] == [
+        "partial_result",
+        "evidence_result_backed_diagnosis_package",
+        "evidence_result_backed_diagnosis_package",
+        "partial_result",
+        "partial_result",
+    ]
+    assert all(result["validation_errors"] == [] for result in results)
+    assert all(result["generic_kubernetes_advice_substituted"] is False for result in results)
+    for result in results:
+        if result["classification"] == "partial_result":
+            assert result["partial_reason"]
+            assert result["evidence_result"]["source_confirmed_facts"]
+        if result["classification"] == "evidence_result_backed_diagnosis_package":
+            assert result["migration_diagnosis_package"]["evidence_appendix"][
+                "source_confirmed_facts"
+            ]
+
+
+def test_poc_validation_runner_receives_repository_and_canned_intake() -> None:
+    validator = _load_validator()
+    received = []
+
+    def runner(case):
+        received.append(
+            {
+                "repository": case["repository"],
+                "revision": case["revision"],
+                "answers": case["canned_intake"]["answers"],
+            }
+        )
+        return case["recorded_result"]
+
+    results = validator.run_poc_validation_matrix(
+        Path("skills/kubernetes-field-assessment"),
+        workflow_runner=runner,
+    )
+
+    assert [item["repository"] for item in received] == [
+        "jbangdev/jbang",
+        "spring-petclinic/spring-petclinic-rest",
+        "ether/etherpad",
+        "pypa/pipx",
+        "searxng/searxng",
+    ]
+    assert received[0]["revision"] == "351b42b46e72ec442f4593f993c36e344c506dad"
+    assert received[0]["answers"][0]["question_id"] == "application_shape"
+    assert all(result["validation_errors"] == [] for result in results)
+
+
+def test_poc_validation_marks_failure_invalid_without_stage_reason_or_with_generic_advice() -> None:
+    validator = _load_validator()
+
+    result = validator.classify_poc_workflow_result(
+        {
+            "repository": "example/broken",
+            "classification": "explicit_failure",
+            "failure": {"failed_stage": "", "reason": ""},
+            "notes": [
+                "create a deployment, service and ingress for this repository."
+            ],
+        }
+    )
+
+    assert result["classification"] == "invalid_result"
+    assert "failed result must include failed_stage" in result["validation_errors"]
+    assert "failed result must include reason" in result["validation_errors"]
+    assert "failed result must not substitute generic Kubernetes advice" in (
+        result["validation_errors"]
+    )
+
+
+def test_package_validation_rejects_invalid_recorded_poc_result(tmp_path: Path) -> None:
+    validator = _load_validator()
+    package = tmp_path / "package"
+    _write_manifest(
+        package,
+        validator.REQUIRED_CANONICAL_FILES,
+        validator.REQUIRED_ADAPTER_FILES,
+    )
+    for relative in validator.REQUIRED_CANONICAL_FILES:
+        path = package / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_required_canonical_file(path, relative, validator)
+    for relative in validator.REQUIRED_ADAPTER_FILES:
+        path = package / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        adapter_refs = "\n".join(
+            canonical_file.replace("canonical/", "../../canonical/")
+            for canonical_file in validator.adapter_required_canonical_files(
+                list(validator.REQUIRED_CANONICAL_FILES)
+            )
+        )
+        path.write_text(
+            f"{adapter_refs}\nPreserve Evidence Result semantics.\n"
+            "Secret masking\n"
+            "no-invention behavior\n"
+            "Migration Diagnosis Package contract and rubric\n",
+            encoding="utf-8",
+        )
+    matrix_path = package / validator.REQUIRED_POC_VALIDATION_FILE
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    matrix["repositories"][0]["recorded_result"].pop("partial_reason")
+    matrix_path.write_text(
+        json.dumps(matrix, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    errors = validator.validate_package(package)
+
+    assert any(
+        "recorded result invalid: partial result must include partial_reason"
+        in error
+        for error in errors
+    )
+
+
+def test_poc_validation_summary_identifies_next_implementation_priorities() -> None:
+    validator = _load_validator()
+    results = validator.run_poc_validation_matrix(
+        Path("skills/kubernetes-field-assessment")
+    )
+
+    summary = validator.summarize_poc_validation_results(results)
+
+    assert summary["total_repositories"] == 5
+    assert summary["classification_counts"] == {
+        "evidence_result_backed_diagnosis_package": 2,
+        "partial_result": 3,
+        "explicit_failure": 0,
+        "invalid_result": 0,
+    }
+    assert summary["next_implementation_priorities"][:3] == [
+        "Represent CLI/tooling repositories as non-resident or Job-like migration candidates without forcing a Deployment.",
+        "Deepen source/container context handling where repository and packaged-image ports or images differ.",
+        "Keep required operational inputs prominent in the diagnosis package instead of filling defaults.",
+    ]
+
+
+def test_poc_validation_report_records_classifications_and_priorities() -> None:
+    report = Path(
+        "docs/validation/"
+        "2026-07-23-field-assessment-poc-five-repository-validation.md"
+    ).read_text(encoding="utf-8")
+
+    assert "| `jbangdev/jbang` | `partial_result` |" in report
+    assert (
+        "| `spring-petclinic/spring-petclinic-rest` | "
+        "`evidence_result_backed_diagnosis_package` |"
+    ) in report
+    assert "| `searxng/searxng` | `partial_result` |" in report
+    assert "다음 구현 우선순위" in report
+    assert "generic Kubernetes advice" not in report
+
+
 def _write_manifest(
     package: Path,
     canonical_files: tuple[str, ...],
@@ -1236,6 +1452,8 @@ def _write_required_canonical_file(
         _write_confirmed_scope_evidence_result(path, validator)
     elif relative == validator.REQUIRED_MIGRATION_DIAGNOSIS_PACKAGE_FILE:
         _write_migration_diagnosis_package(path, validator)
+    elif relative == validator.REQUIRED_POC_VALIDATION_FILE:
+        _write_poc_validation_matrix(path, validator)
     else:
         _write_required_terms_doc(path)
 
@@ -1372,6 +1590,104 @@ def _write_migration_diagnosis_package(path: Path, validator) -> None:
         json.dumps(payload, ensure_ascii=False, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _write_poc_validation_matrix(path: Path, validator) -> None:
+    payload = {
+        "schema_version": "field-assessment-poc-validation/v1",
+        "repositories": [
+            {
+                "repository": repository,
+                "clone_url": f"https://github.com/{repository}.git",
+                "revision": revision,
+                "category": category,
+                "expected_classification": expected_classification,
+                "canned_intake": {
+                    "answers": [
+                        {
+                            "question_id": "application_shape",
+                            "mode": "selected_option",
+                            "option_id": "web_api",
+                        },
+                        {
+                            "question_id": "current_execution_shape",
+                            "mode": "selected_option",
+                            "option_id": "unknown",
+                        },
+                        {
+                            "question_id": "analysis_purpose",
+                            "mode": "selected_option",
+                            "option_id": "migration_field_diagnosis",
+                        },
+                    ]
+                },
+                "recorded_result": _minimal_recorded_partial_result(repository),
+            }
+            for repository, revision, category, expected_classification in zip(
+                validator.REQUIRED_POC_REPOSITORIES,
+                validator.REQUIRED_POC_REVISIONS,
+                validator.REQUIRED_POC_CATEGORIES,
+                validator.REQUIRED_POC_CLASSIFICATIONS,
+            )
+        ],
+        "acceptable_result_classifications": list(
+            validator.POC_RESULT_CLASSIFICATIONS
+        ),
+        "failure_policy": {
+            "failed_stage_required": True,
+            "reason_required": True,
+            "generic_kubernetes_advice_forbidden": True,
+        },
+        "summary_policy": {
+            "next_implementation_priorities_required": True,
+        },
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def _minimal_recorded_partial_result(repository: str) -> dict[str, object]:
+    return {
+        "classification": "partial_result",
+        "summary": "sample partial result",
+        "priority_tags": ["required_operational_inputs"],
+        "partial_reason": "sample",
+        "evidence_result_checked": True,
+        "evidence_result": {
+            "schema_version": "evidence-result/v1",
+            "scope": {
+                "target_candidate_id": "sample",
+                "repository_root": repository,
+                "source_path_filters": {
+                    "include_paths": ["README.md"],
+                    "exclude_paths": [],
+                },
+                "analysis_topics": ["runtime"],
+            },
+            "source_confirmed_facts": [
+                {
+                    "id": "src-sample",
+                    "property": "current_runtime",
+                    "value": "sample",
+                    "evidence_ref": "README.md:1",
+                    "origin": "repository_source",
+                }
+            ],
+            "user_input_context": [],
+            "required_inputs": [],
+            "conflicts": [],
+            "secret_masking_events": [],
+            "no_invention_rules": [
+                "replicas",
+                "resource_requests",
+                "ingress_host",
+                "storage_class",
+                "production_secret_values",
+            ],
+        },
+    }
 
 
 def _sample_candidates() -> list[dict[str, object]]:

@@ -13,6 +13,7 @@ canonical:
   - canonical/confirmed-scope-evidence-result.json
   - canonical/migration-diagnosis-package.json
   - canonical/diagnosis-package-rubric.md
+  - canonical/poc-validation.json
   - canonical/validation.md
 adapters:
   codex: adapters/codex/SKILL.md
