@@ -1,0 +1,72 @@
+{
+  "schema_version": "confirmed-scope-evidence-result/v1",
+  "evidence_core_request": {
+    "operation": "run_evidence_core",
+    "required_fields": [
+      "target_candidate_id",
+      "repository_root",
+      "source_path_filters",
+      "analysis_topics"
+    ],
+    "result_policy": {
+      "keep_user_context_separate": true,
+      "mask_secrets": true,
+      "no_invention": true,
+      "report_conflicts": true
+    }
+  },
+  "evidence_result": {
+    "required_sections": [
+      "scope",
+      "source_confirmed_facts",
+      "user_input_context",
+      "required_inputs",
+      "conflicts",
+      "secret_masking_events",
+      "no_invention_rules"
+    ]
+  },
+  "no_invention_required_inputs": [
+    {
+      "id": "replicas",
+      "needed_for": "workload scaling decision"
+    },
+    {
+      "id": "resource_requests",
+      "needed_for": "capacity and scheduling decision"
+    },
+    {
+      "id": "ingress_host",
+      "needed_for": "external routing decision"
+    },
+    {
+      "id": "storage_class",
+      "needed_for": "persistent storage decision"
+    },
+    {
+      "id": "production_secret_values",
+      "needed_for": "runtime secret provisioning"
+    }
+  ],
+  "secret_masking": {
+    "masked_value": "[MASKED_SECRET]",
+    "property_patterns": [
+      "password",
+      "passwd",
+      "secret",
+      "token",
+      "api_key",
+      "apikey",
+      "credential"
+    ],
+    "value_patterns": [
+      "password",
+      "passwd",
+      "secret=",
+      "token=",
+      "bearer ",
+      "api_key=",
+      "apikey="
+    ]
+  }
+}

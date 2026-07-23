@@ -21,13 +21,16 @@ settings.
 2. Run a cheap repository scan for application candidates and high-value files.
 3. Recommend the most likely application target in field-friendly language.
 4. Confirm the target and scope with the user.
-5. Run the Evidence Core or equivalent repository-backed extraction path.
+5. Build the confirmed-scope Evidence Core request and run the Evidence Core or
+   equivalent repository-backed extraction path.
 6. Review the Evidence Result for source-confirmed facts, user input context,
    unknowns, conflicts, and migration risks.
 7. Write the Migration Diagnosis Package with an evidence appendix.
 
 The concrete candidate recommendation contract lives in
 `canonical/candidate-recommendation.json`.
+The confirmed-scope Evidence Result contract lives in
+`canonical/confirmed-scope-evidence-result.json`.
 
 ## Runtime Adapter Rule
 

@@ -6,11 +6,14 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 REQUIRED_MANIFEST_FILE = "package.yaml"
 REQUIRED_INTAKE_CARD_FILE = "canonical/intake-card.json"
 REQUIRED_CANDIDATE_RECOMMENDATION_FILE = "canonical/candidate-recommendation.json"
+REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE = (
+    "canonical/confirmed-scope-evidence-result.json"
+)
 REQUIRED_CANONICAL_FILES = (
     "canonical/workflow.md",
     "canonical/evidence-rules.md",
@@ -18,6 +21,8 @@ REQUIRED_CANONICAL_FILES = (
     REQUIRED_INTAKE_CARD_FILE,
     "canonical/candidate-recommendation.md",
     REQUIRED_CANDIDATE_RECOMMENDATION_FILE,
+    "canonical/confirmed-scope-evidence-result.md",
+    REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE,
     "canonical/diagnosis-package-rubric.md",
     "canonical/validation.md",
 )
@@ -107,6 +112,53 @@ CANDIDATE_KIND_METADATA = {
         "reason": "실행 관련 파일이 모여 있어 확인 대상 후보임",
     },
 }
+REQUIRED_EVIDENCE_CORE_REQUEST_FIELDS = (
+    "target_candidate_id",
+    "repository_root",
+    "source_path_filters",
+    "analysis_topics",
+)
+REQUIRED_EVIDENCE_RESULT_SECTIONS = (
+    "scope",
+    "source_confirmed_facts",
+    "user_input_context",
+    "required_inputs",
+    "conflicts",
+    "secret_masking_events",
+    "no_invention_rules",
+)
+REQUIRED_EVIDENCE_RESULT_POLICY = {
+    "keep_user_context_separate": True,
+    "mask_secrets": True,
+    "no_invention": True,
+    "report_conflicts": True,
+}
+REQUIRED_NO_INVENTION_INPUTS = (
+    "replicas",
+    "resource_requests",
+    "ingress_host",
+    "storage_class",
+    "production_secret_values",
+)
+MASKED_SECRET_VALUE = "[MASKED_SECRET]"
+SECRET_PROPERTY_PATTERNS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "credential",
+)
+SECRET_VALUE_PATTERNS = (
+    "password",
+    "passwd",
+    "secret=",
+    "token=",
+    "bearer ",
+    "api_key=",
+    "apikey=",
+)
 FORBIDDEN_CANONICAL_TERMS = (
     "Codex-only",
     "Claude Code-only",
@@ -147,6 +199,7 @@ def validate_package(package_root: Path) -> list[str]:
 
     _validate_intake_card(package_root, errors)
     _validate_candidate_recommendation(package_root, errors)
+    _validate_confirmed_scope_evidence_result(package_root, errors)
 
     for relative in adapter_files:
         path = package_root / relative
@@ -210,6 +263,14 @@ def load_candidate_recommendation(package_root: Path) -> dict[str, Any]:
     contract = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(contract, dict):
         raise ValueError("candidate recommendation root must be an object")
+    return contract
+
+
+def load_confirmed_scope_evidence_result(package_root: Path) -> dict[str, Any]:
+    path = package_root / REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(contract, dict):
+        raise ValueError("confirmed scope evidence result root must be an object")
     return contract
 
 
@@ -315,6 +376,82 @@ def render_candidate_choices(
             }
         )
     return choices
+
+
+def build_evidence_core_request(
+    contract: dict[str, Any],
+    confirmed_scope: dict[str, Any],
+) -> dict[str, Any]:
+    scope = confirmed_scope["confirmed_scope"]
+    return {
+        "operation": contract["evidence_core_request"]["operation"],
+        "target_candidate_id": confirmed_scope["target_candidate_id"],
+        "repository_root": confirmed_scope["repository_root"],
+        "source_path_filters": {
+            "include_paths": list(scope.get("include_paths", [])),
+            "exclude_paths": list(scope.get("exclude_paths", [])),
+        },
+        "analysis_topics": list(scope.get("analysis_topics", [])),
+        "user_input_context": list(confirmed_scope.get("user_input_context", [])),
+        "result_policy": contract["evidence_core_request"]["result_policy"],
+    }
+
+
+def build_evidence_result(
+    contract: dict[str, Any],
+    evidence_core_request: dict[str, Any],
+    *,
+    source_facts: list[dict[str, Any]],
+    user_context: list[dict[str, Any]],
+    repository_unknowns: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    source_confirmed_facts, source_secret_events = _normalize_source_facts(source_facts)
+    user_input_context, user_secret_events = _normalize_user_context(user_context)
+    required_inputs = _required_inputs(
+        contract,
+        source_confirmed_facts,
+        user_input_context,
+        repository_unknowns or [],
+    )
+    return {
+        "schema_version": "evidence-result/v1",
+        "scope": {
+            "target_candidate_id": evidence_core_request["target_candidate_id"],
+            "repository_root": evidence_core_request["repository_root"],
+            "source_path_filters": evidence_core_request["source_path_filters"],
+            "analysis_topics": evidence_core_request["analysis_topics"],
+        },
+        "source_confirmed_facts": source_confirmed_facts,
+        "user_input_context": user_input_context,
+        "required_inputs": required_inputs,
+        "conflicts": _conflicts(source_facts, user_context),
+        "secret_masking_events": source_secret_events + user_secret_events,
+        "no_invention_rules": [
+            item["id"] for item in contract["no_invention_required_inputs"]
+        ],
+    }
+
+
+def run_confirmed_scope_evidence_core(
+    contract: dict[str, Any],
+    confirmed_scope: dict[str, Any],
+    *,
+    evidence_core: Callable[[dict[str, Any]], dict[str, Any]],
+) -> dict[str, Any]:
+    request = build_evidence_core_request(contract, confirmed_scope)
+    evidence_core_result = evidence_core(request)
+    return {
+        "evidence_core_request": request,
+        "evidence_result": build_evidence_result(
+            contract,
+            request,
+            source_facts=list(evidence_core_result.get("source_facts", [])),
+            user_context=request["user_input_context"],
+            repository_unknowns=list(
+                evidence_core_result.get("repository_unknowns", [])
+            ),
+        ),
+    }
 
 
 def _validate_intake_card(package_root: Path, errors: list[str]) -> None:
@@ -474,6 +611,267 @@ def _validate_candidate_recommendation(package_root: Path, errors: list[str]) ->
         for flag in REQUIRED_CANDIDATE_SELECTION_FLAGS:
             if selection_behavior.get(flag) is not True:
                 errors.append(f"candidate recommendation {flag} must be true")
+
+
+def _validate_confirmed_scope_evidence_result(
+    package_root: Path,
+    errors: list[str],
+) -> None:
+    path = package_root / REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE
+    if not path.is_file():
+        errors.append(
+            "missing confirmed scope evidence result file: "
+            f"{REQUIRED_CONFIRMED_SCOPE_EVIDENCE_RESULT_FILE}"
+        )
+        return
+    try:
+        contract = load_confirmed_scope_evidence_result(package_root)
+    except json.JSONDecodeError as exc:
+        errors.append(f"invalid confirmed scope evidence result JSON: {exc}")
+        return
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+        return
+
+    if contract.get("schema_version") != "confirmed-scope-evidence-result/v1":
+        errors.append(
+            "confirmed scope evidence result schema_version must be "
+            "confirmed-scope-evidence-result/v1"
+        )
+
+    request_contract = contract.get("evidence_core_request")
+    if not isinstance(request_contract, dict):
+        errors.append("confirmed scope contract must define evidence_core_request")
+    else:
+        if request_contract.get("operation") != "run_evidence_core":
+            errors.append("confirmed scope contract operation must run Evidence Core")
+        required_fields = request_contract.get("required_fields")
+        if not isinstance(required_fields, list) or not set(
+            REQUIRED_EVIDENCE_CORE_REQUEST_FIELDS
+        ).issubset(set(required_fields)):
+            errors.append("confirmed scope request fields are incomplete")
+        if request_contract.get("result_policy") != REQUIRED_EVIDENCE_RESULT_POLICY:
+            errors.append("confirmed scope result policy is invalid")
+
+    result_contract = contract.get("evidence_result")
+    if not isinstance(result_contract, dict):
+        errors.append("confirmed scope contract must define evidence_result")
+    else:
+        required_sections = result_contract.get("required_sections")
+        if not isinstance(required_sections, list) or not set(
+            REQUIRED_EVIDENCE_RESULT_SECTIONS
+        ).issubset(set(required_sections)):
+            errors.append("confirmed scope evidence result sections are incomplete")
+
+    required_inputs = contract.get("no_invention_required_inputs")
+    if not isinstance(required_inputs, list):
+        errors.append("confirmed scope contract must define no-invention inputs")
+    else:
+        input_ids = {
+            item.get("id")
+            for item in required_inputs
+            if isinstance(item, dict)
+        }
+        if not set(REQUIRED_NO_INVENTION_INPUTS).issubset(input_ids):
+            errors.append("confirmed scope no-invention inputs are incomplete")
+
+    secret_masking = contract.get("secret_masking")
+    if not isinstance(secret_masking, dict):
+        errors.append("confirmed scope contract must define secret masking")
+    else:
+        if secret_masking.get("masked_value") != MASKED_SECRET_VALUE:
+            errors.append("confirmed scope masked secret value is invalid")
+        patterns = secret_masking.get("property_patterns")
+        if not isinstance(patterns, list) or not set(
+            SECRET_PROPERTY_PATTERNS
+        ).issubset(set(patterns)):
+            errors.append("confirmed scope secret masking patterns are incomplete")
+        value_patterns = secret_masking.get("value_patterns")
+        if not isinstance(value_patterns, list) or not set(
+            SECRET_VALUE_PATTERNS
+        ).issubset(set(value_patterns)):
+            errors.append("confirmed scope secret value patterns are incomplete")
+
+
+def _normalize_source_facts(
+    facts: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return _normalize_records(
+        facts,
+        section="source_confirmed_facts",
+        origin="repository_source",
+        retained_fields=("evidence_ref",),
+        mask_retained_fields=(),
+    )
+
+
+def _normalize_user_context(
+    contexts: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return _normalize_records(
+        contexts,
+        section="user_input_context",
+        origin="user_input",
+        retained_fields=("raw_text",),
+        mask_retained_fields=("raw_text",),
+    )
+
+
+def _normalize_records(
+    records: list[dict[str, Any]],
+    *,
+    section: str,
+    origin: str,
+    retained_fields: tuple[str, ...],
+    mask_retained_fields: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    normalized = []
+    secret_events = []
+    for record in records:
+        value, event = _mask_if_secret(
+            section,
+            str(record["id"]),
+            str(record["property"]),
+            record.get("value"),
+        )
+        item = {
+            "id": record["id"],
+            "property": record["property"],
+            "value": value,
+            "origin": origin,
+        }
+        for field in retained_fields:
+            if field in mask_retained_fields:
+                retained_value, retained_event = _mask_if_secret(
+                    section,
+                    str(record["id"]),
+                    field,
+                    record[field],
+                )
+                item[field] = retained_value
+                if retained_event:
+                    secret_events.append(retained_event)
+            else:
+                item[field] = record[field]
+        normalized.append(item)
+        if event:
+            secret_events.append(event)
+    return normalized, secret_events
+
+
+def _mask_if_secret(
+    section: str,
+    item_id: str,
+    property_name: str,
+    value: Any,
+) -> tuple[Any, dict[str, Any] | None]:
+    if not _is_secret_like(property_name, value):
+        return value, None
+    return MASKED_SECRET_VALUE, {
+        "section": section,
+        "id": item_id,
+        "property": property_name,
+        "masked_value": MASKED_SECRET_VALUE,
+    }
+
+
+def _is_secret_property(property_name: str) -> bool:
+    normalized = property_name.lower()
+    return any(pattern in normalized for pattern in SECRET_PROPERTY_PATTERNS)
+
+
+def _is_secret_like(property_name: str, value: Any) -> bool:
+    return _is_secret_property(property_name) or _is_secret_value(value)
+
+
+def _is_secret_value(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.lower()
+    return any(pattern in normalized for pattern in SECRET_VALUE_PATTERNS)
+
+
+def _required_inputs(
+    contract: dict[str, Any],
+    source_confirmed_facts: list[dict[str, Any]],
+    user_input_context: list[dict[str, Any]],
+    repository_unknowns: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_properties = {fact["property"] for fact in source_confirmed_facts}
+    user_properties = {context["property"] for context in user_input_context}
+    required_inputs = []
+    for item in contract["no_invention_required_inputs"]:
+        if item["id"] in source_properties:
+            continue
+        required_inputs.append(
+            _required_input_item(
+                item["id"],
+                item["needed_for"],
+                "repository_cannot_determine",
+                user_properties,
+            )
+        )
+    for unknown in repository_unknowns:
+        if unknown["id"] in source_properties:
+            continue
+        required_inputs.append(
+            _required_input_item(
+                unknown["id"],
+                unknown["needed_for"],
+                unknown.get("reason", "repository_cannot_determine"),
+                user_properties,
+            )
+        )
+    return required_inputs
+
+
+def _required_input_item(
+    item_id: str,
+    needed_for: str,
+    reason: str,
+    user_properties: set[str],
+) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "reason": reason,
+        "needed_for": needed_for,
+        "value": None,
+        "user_context_available": item_id in user_properties,
+    }
+
+
+def _conflicts(
+    source_facts: list[dict[str, Any]],
+    user_context: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    conflicts = []
+    contexts_by_property = {
+        context["property"]: context for context in user_context
+    }
+    for fact in source_facts:
+        context = contexts_by_property.get(fact["property"])
+        if context is None or context.get("value") == fact.get("value"):
+            continue
+        conflicts.append(
+            {
+                "property": fact["property"],
+                "source_fact_id": fact["id"],
+                "user_context_id": context["id"],
+                "source_value": _conflict_value(fact["property"], fact.get("value")),
+                "user_value": _conflict_value(
+                    context["property"],
+                    context.get("value"),
+                ),
+                "resolution_required": True,
+            }
+        )
+    return conflicts
+
+
+def _conflict_value(property_name: str, value: Any) -> Any:
+    if _is_secret_like(property_name, value):
+        return MASKED_SECRET_VALUE
+    return value
 
 
 def _recommended_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any]:
